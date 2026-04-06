@@ -3,9 +3,9 @@ package usecase
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
-	"sync/atomic"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"med-go/internal/doctor/model"
 	"med-go/internal/doctor/repository"
@@ -26,8 +26,7 @@ type Repository interface {
 }
 
 type Service struct {
-	repo      Repository
-	idCounter atomic.Uint64
+	repo Repository
 }
 
 func NewService(repo Repository) *Service {
@@ -44,7 +43,7 @@ func (s *Service) CreateDoctor(ctx context.Context, input CreateDoctorInput) (mo
 	}
 
 	doctor := model.Doctor{
-		ID:             fmt.Sprintf("doc-%d", s.idCounter.Add(1)),
+		ID:             bson.NewObjectID().Hex(),
 		FullName:       fullName,
 		Specialization: specialization,
 		Email:          email,

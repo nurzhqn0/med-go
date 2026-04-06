@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync/atomic"
 	"time"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"med-go/internal/appointment/model"
 	"med-go/internal/appointment/repository"
@@ -39,7 +40,6 @@ type DoctorLookup interface {
 type Service struct {
 	repo         Repository
 	doctorLookup DoctorLookup
-	idCounter    atomic.Uint64
 }
 
 func NewService(repo Repository, doctorLookup DoctorLookup) *Service {
@@ -69,7 +69,7 @@ func (s *Service) CreateAppointment(ctx context.Context, input CreateAppointment
 
 	now := time.Now().UTC()
 	appointment := model.Appointment{
-		ID:          fmt.Sprintf("appt-%d", s.idCounter.Add(1)),
+		ID:          bson.NewObjectID().Hex(),
 		Title:       title,
 		Description: description,
 		DoctorID:    doctorID,
