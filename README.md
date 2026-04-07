@@ -11,6 +11,45 @@ Assignment 1 implementation: a two-service medical scheduling platform in Go wit
 - `appointment-service` validates doctor existence by calling `doctor-service`
 - Data is persisted in MongoDB collections `doctors` and `appointments`
 
+## Docker Deploy
+
+The easiest deployment path is Docker Compose. This stack starts:
+
+- `app`: the Go binary running both services
+- `mongo`: MongoDB 8 with a persistent volume
+- `nginx`: reverse proxy exposing one public base URL
+
+Start everything:
+
+```bash
+docker compose up --build -d
+```
+
+Stop everything:
+
+```bash
+docker compose down
+```
+
+Public endpoints through Nginx:
+
+- `GET /`
+- `GET /doctor-health`
+- `GET /appointment-health`
+- `POST /doctors`
+- `GET /doctors`
+- `GET /doctors/:id`
+- `POST /appointments`
+- `GET /appointments`
+- `GET /appointments/:id`
+- `PATCH /appointments/:id/status`
+
+If you want to use Atlas instead of the bundled Mongo container, override `COMPOSE_MONGODB_URI` when starting Compose:
+
+```bash
+COMPOSE_MONGODB_URI='mongodb+srv://USER:PASSWORD@cluster.mongodb.net/' docker compose up --build -d
+```
+
 ## Structure
 
 ```text
@@ -95,7 +134,7 @@ Create appointment payload:
 {
   "title": "Initial Consultation",
   "description": "Review chest pain symptoms",
-  "doctor_id": "doc-1"
+  "doctor_id": "PUT_REAL_DOCTOR_ID_HERE"
 }
 ```
 

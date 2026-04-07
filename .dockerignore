@@ -1,0 +1,13 @@
+.git
+.gitignore
+.idea
+.vscode
+.DS_Store
+bin
+build
+dist
+tmp
+coverage.out
+coverage.html
+*.log
+postman_collection.json
