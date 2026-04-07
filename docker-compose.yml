@@ -16,6 +16,9 @@ services:
     expose:
       - "8081"
       - "8082"
+    ports:
+      - "127.0.0.1:${DOCTOR_PUBLISHED_PORT:-8081}:8081"
+      - "127.0.0.1:${APPOINTMENT_PUBLISHED_PORT:-8082}:8082"
 
   mongo:
     image: mongo:8
@@ -31,6 +34,8 @@ services:
 
   nginx:
     image: nginx:1.27-alpine
+    profiles:
+      - proxy
     restart: unless-stopped
     depends_on:
       app:

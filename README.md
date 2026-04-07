@@ -13,42 +13,48 @@ Assignment 1 implementation: a two-service medical scheduling platform in Go wit
 
 ## Docker Deploy
 
-The easiest deployment path is Docker Compose. This stack starts:
+The default Docker Compose deployment is meant for servers that already run host Nginx on port `80`.
+
+Default stack:
 
 - `app`: the Go binary running both services
 - `mongo`: MongoDB 8 with a persistent volume
-- `nginx`: reverse proxy exposing one public base URL
 
-Start everything:
+Start it:
 
 ```bash
 docker compose up --build -d
 ```
 
-Stop everything:
+This publishes the app only on loopback:
+
+- `127.0.0.1:8081`
+- `127.0.0.1:8082`
+
+Stop it:
 
 ```bash
 docker compose down
 ```
 
-Public endpoints through Nginx:
+If you want the bundled Docker Nginx proxy too, start the optional `proxy` profile:
 
-- `GET /`
-- `GET /doctor-health`
-- `GET /appointment-health`
-- `POST /doctors`
-- `GET /doctors`
-- `GET /doctors/:id`
-- `POST /appointments`
-- `GET /appointments`
-- `GET /appointments/:id`
-- `PATCH /appointments/:id/status`
+```bash
+docker compose --profile proxy up --build -d
+```
+
+Use that profile only when port `80` is free on the host.
 
 If you want to use Atlas instead of the bundled Mongo container, override `COMPOSE_MONGODB_URI` when starting Compose:
 
 ```bash
 COMPOSE_MONGODB_URI='mongodb+srv://USER:PASSWORD@cluster.mongodb.net/' docker compose up --build -d
 ```
+
+If your server already runs Nginx, use [host-med-go.conf](/Users/myrzanizimbetov/Desktop/med-go/deploy/nginx/host-med-go.conf) as the site config and proxy to:
+
+- `127.0.0.1:8081` for `/doctors`
+- `127.0.0.1:8082` for `/appointments`
 
 ## Structure
 
