@@ -1,0 +1,34 @@
+groups:
+  - name: med-go-alerts
+    rules:
+      - alert: DoctorServiceDown
+        expr: up{job="doctor-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Doctor service is unreachable
+          description: Prometheus has been unable to scrape doctor-service for more than 1 minute.
+
+      - alert: AppointmentServiceDown
+        expr: up{job="appointment-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Appointment service is unreachable
+          description: Prometheus has been unable to scrape appointment-service for more than 1 minute.
+
+      - alert: HighAppointmentAPIErrorRate
+        expr: |
+          (
+            sum(rate(med_go_http_requests_total{service="appointment-service",status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(med_go_http_requests_total{service="appointment-service"}[5m])), 0.001)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Appointment API 5xx error rate is too high
+          description: More than 5% of appointment-service requests have returned 5xx for 5 minutes.

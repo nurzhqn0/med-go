@@ -5,9 +5,11 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"med-go/internal/doctor/repository"
 	"med-go/internal/doctor/usecase"
+	"med-go/internal/platform/observability"
 )
 
 type createDoctorRequest struct {
@@ -16,9 +18,10 @@ type createDoctorRequest struct {
 	Email          string `json:"email"`
 }
 
-func NewRouter(service *usecase.Service) *gin.Engine {
+func NewRouter(service *usecase.Service, registry *prometheus.Registry, metrics *observability.HTTPMetrics) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
+	router.Use(metrics.Middleware("doctor-service"))
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -26,6 +29,7 @@ func NewRouter(service *usecase.Service) *gin.Engine {
 			"status":  "ok",
 		})
 	})
+	router.GET("/metrics", observability.MetricsHandler(registry))
 
 	doctors := router.Group("/doctors")
 	doctors.POST("", func(c *gin.Context) {

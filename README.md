@@ -56,6 +56,28 @@ If your server already runs Nginx, use [host-med-go.conf](/Users/myrzanizimbetov
 - `127.0.0.1:8081` for `/doctors`
 - `127.0.0.1:8082` for `/appointments`
 
+## Assignment 3 Observability
+
+Start Prometheus, Grafana, and node-exporter with:
+
+```bash
+docker compose --profile observability up --build -d
+```
+
+Available endpoints:
+
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000`
+- Doctor metrics: `http://localhost:8081/metrics`
+- Appointment metrics: `http://localhost:8082/metrics`
+
+Assignment files:
+
+- writeup: [ASSIGNMENT_3.md](/Users/myrzanizimbetov/Desktop/med-go/ASSIGNMENT_3.md)
+- Prometheus config: [prometheus.yml](/Users/myrzanizimbetov/Desktop/med-go/monitoring/prometheus/prometheus.yml)
+- alert rules: [alerts.yml](/Users/myrzanizimbetov/Desktop/med-go/monitoring/prometheus/alerts.yml)
+- Grafana dashboard: [med-go-observability.json](/Users/myrzanizimbetov/Desktop/med-go/monitoring/grafana/dashboards/med-go-observability.json)
+
 ## Structure
 
 ```text

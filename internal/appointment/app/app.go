@@ -7,6 +7,7 @@ import (
 	"med-go/internal/appointment/repository"
 	httptransport "med-go/internal/appointment/transport/http"
 	"med-go/internal/appointment/usecase"
+	"med-go/internal/platform/observability"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
@@ -19,7 +20,9 @@ func New(addr, doctorServiceBaseURL string, database *mongo.Database) *App {
 	repo := repository.NewMongoRepository(database)
 	doctorClient := NewDoctorClient(doctorServiceBaseURL)
 	service := usecase.NewService(repo, doctorClient)
-	router := httptransport.NewRouter(doctorServiceBaseURL, service)
+	registry := observability.NewRegistry()
+	metrics := observability.NewHTTPMetrics(registry)
+	router := httptransport.NewRouter(doctorServiceBaseURL, service, registry, metrics)
 
 	return &App{
 		Server: &http.Server{

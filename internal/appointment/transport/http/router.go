@@ -5,10 +5,12 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"med-go/internal/appointment/model"
 	"med-go/internal/appointment/repository"
 	"med-go/internal/appointment/usecase"
+	"med-go/internal/platform/observability"
 )
 
 type createAppointmentRequest struct {
@@ -21,9 +23,10 @@ type updateStatusRequest struct {
 	Status string `json:"status"`
 }
 
-func NewRouter(doctorServiceBaseURL string, service *usecase.Service) *gin.Engine {
+func NewRouter(doctorServiceBaseURL string, service *usecase.Service, registry *prometheus.Registry, metrics *observability.HTTPMetrics) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
+	router.Use(metrics.Middleware("appointment-service"))
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -32,6 +35,7 @@ func NewRouter(doctorServiceBaseURL string, service *usecase.Service) *gin.Engin
 			"status":             "ok",
 		})
 	})
+	router.GET("/metrics", observability.MetricsHandler(registry))
 
 	appointments := router.Group("/appointments")
 	appointments.POST("", func(c *gin.Context) {
