@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -16,8 +17,12 @@ type App struct {
 	Server *http.Server
 }
 
-func New(addr string, database *mongo.Database) *App {
-	repo := repository.NewMongoRepository(database)
+func New(ctx context.Context, addr string, database *mongo.Database) (*App, error) {
+	repo, err := repository.NewMongoRepository(ctx, database)
+	if err != nil {
+		return nil, err
+	}
+
 	service := usecase.NewService(repo)
 	registry := observability.NewRegistry()
 	metrics := observability.NewHTTPMetrics(registry)
@@ -29,5 +34,5 @@ func New(addr string, database *mongo.Database) *App {
 			Handler:           router,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
-	}
+	}, nil
 }

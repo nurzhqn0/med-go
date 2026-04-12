@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -15,6 +16,16 @@ type MongoRepository struct {
 	collection *mongo.Collection
 }
 
+type appointmentDocument struct {
+	ID          string       `bson:"_id"`
+	Title       string       `bson:"title"`
+	Description string       `bson:"description"`
+	DoctorID    string       `bson:"doctor_id"`
+	Status      model.Status `bson:"status"`
+	CreatedAt   time.Time    `bson:"created_at"`
+	UpdatedAt   time.Time    `bson:"updated_at"`
+}
+
 func NewMongoRepository(database *mongo.Database) *MongoRepository {
 	return &MongoRepository{
 		collection: database.Collection("appointments"),
@@ -22,7 +33,7 @@ func NewMongoRepository(database *mongo.Database) *MongoRepository {
 }
 
 func (r *MongoRepository) Create(ctx context.Context, appointment model.Appointment) error {
-	_, err := r.collection.InsertOne(ctx, appointment)
+	_, err := r.collection.InsertOne(ctx, appointmentToDocument(appointment))
 	return err
 }
 
@@ -33,17 +44,22 @@ func (r *MongoRepository) List(ctx context.Context) ([]model.Appointment, error)
 	}
 	defer cursor.Close(ctx)
 
-	var appointments []model.Appointment
-	if err := cursor.All(ctx, &appointments); err != nil {
+	var documents []appointmentDocument
+	if err := cursor.All(ctx, &documents); err != nil {
 		return nil, err
+	}
+
+	appointments := make([]model.Appointment, 0, len(documents))
+	for _, document := range documents {
+		appointments = append(appointments, documentToAppointment(document))
 	}
 
 	return appointments, nil
 }
 
 func (r *MongoRepository) GetByID(ctx context.Context, id string) (model.Appointment, error) {
-	var appointment model.Appointment
-	err := r.collection.FindOne(ctx, bson.D{{Key: "_id", Value: id}}).Decode(&appointment)
+	var document appointmentDocument
+	err := r.collection.FindOne(ctx, bson.D{{Key: "_id", Value: id}}).Decode(&document)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return model.Appointment{}, ErrAppointmentNotFound
@@ -52,7 +68,7 @@ func (r *MongoRepository) GetByID(ctx context.Context, id string) (model.Appoint
 		return model.Appointment{}, err
 	}
 
-	return appointment, nil
+	return documentToAppointment(document), nil
 }
 
 func (r *MongoRepository) Update(ctx context.Context, appointment model.Appointment) error {
@@ -77,4 +93,28 @@ func (r *MongoRepository) Update(ctx context.Context, appointment model.Appointm
 	}
 
 	return nil
+}
+
+func appointmentToDocument(appointment model.Appointment) appointmentDocument {
+	return appointmentDocument{
+		ID:          appointment.ID,
+		Title:       appointment.Title,
+		Description: appointment.Description,
+		DoctorID:    appointment.DoctorID,
+		Status:      appointment.Status,
+		CreatedAt:   appointment.CreatedAt,
+		UpdatedAt:   appointment.UpdatedAt,
+	}
+}
+
+func documentToAppointment(document appointmentDocument) model.Appointment {
+	return model.Appointment{
+		ID:          document.ID,
+		Title:       document.Title,
+		Description: document.Description,
+		DoctorID:    document.DoctorID,
+		Status:      document.Status,
+		CreatedAt:   document.CreatedAt,
+		UpdatedAt:   document.UpdatedAt,
+	}
 }

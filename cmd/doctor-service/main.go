@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	appointmentapp "med-go/internal/appointment/app"
 	doctorapp "med-go/internal/doctor/app"
 	"med-go/internal/platform/mongodb"
 )
@@ -26,8 +25,6 @@ func main() {
 	mongoURI := getEnv("MONGODB_URI", "mongodb://localhost:27017")
 	mongoDatabaseName := getEnv("MONGODB_DATABASE", "med_go")
 	doctorAddress := getEnv("DOCTOR_SERVICE_ADDR", ":8081")
-	appointmentAddress := getEnv("APPOINTMENT_SERVICE_ADDR", ":8082")
-	doctorServiceBaseURL := getEnv("DOCTOR_SERVICE_BASE_URL", "http://localhost:8081")
 
 	connectCtx, connectCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer connectCancel()
@@ -45,18 +42,13 @@ func main() {
 		}
 	}()
 
-	database := mongoClient.Database(mongoDatabaseName)
-
-	doctorService, err := doctorapp.New(ctx, doctorAddress, database)
+	doctorService, err := doctorapp.New(ctx, doctorAddress, mongoClient.Database(mongoDatabaseName))
 	if err != nil {
 		log.Fatalf("failed to initialize doctor-service: %v", err)
 	}
-	appointmentService := appointmentapp.New(appointmentAddress, doctorServiceBaseURL, database)
 
-	serverErrors := make(chan error, 2)
-
+	serverErrors := make(chan error, 1)
 	go serve("doctor-service", doctorService.Server, serverErrors)
-	go serve("appointment-service", appointmentService.Server, serverErrors)
 
 	select {
 	case err := <-serverErrors:
@@ -67,10 +59,6 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	if err := appointmentService.Server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("appointment-service shutdown failed: %v", err)
-	}
 
 	if err := doctorService.Server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("doctor-service shutdown failed: %v", err)

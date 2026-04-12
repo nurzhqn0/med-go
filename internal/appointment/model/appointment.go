@@ -46,11 +46,11 @@ func (s Status) CanTransitionTo(next Status) bool {
 }
 
 type Appointment struct {
-	ID          string    `json:"id" bson:"_id"`
-	Title       string    `json:"title" bson:"title"`
-	Description string    `json:"description" bson:"description"`
-	DoctorID    string    `json:"doctor_id" bson:"doctor_id"`
-	Status      Status    `json:"status" bson:"status"`
-	CreatedAt   time.Time `json:"created_at" bson:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at" bson:"updated_at"`
+	ID          string
+	Title       string
+	Description string
+	DoctorID    string
+	Status      Status
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }

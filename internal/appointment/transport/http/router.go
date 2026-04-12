@@ -1,8 +1,10 @@
 package httptransport
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
@@ -23,7 +25,24 @@ type updateStatusRequest struct {
 	Status string `json:"status"`
 }
 
-func NewRouter(doctorServiceBaseURL string, service *usecase.Service, registry *prometheus.Registry, metrics *observability.HTTPMetrics) *gin.Engine {
+type appointmentResponse struct {
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	DoctorID    string    `json:"doctor_id"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type Service interface {
+	CreateAppointment(ctx context.Context, input usecase.CreateAppointmentInput) (model.Appointment, error)
+	ListAppointments(ctx context.Context) ([]model.Appointment, error)
+	GetAppointment(ctx context.Context, id string) (model.Appointment, error)
+	UpdateStatus(ctx context.Context, id string, rawStatus string) (model.Appointment, error)
+}
+
+func NewRouter(doctorServiceBaseURL string, service Service, registry *prometheus.Registry, metrics *observability.HTTPMetrics) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
 	router.Use(metrics.Middleware("appointment-service"))
@@ -57,14 +76,14 @@ func NewRouter(doctorServiceBaseURL string, service *usecase.Service, registry *
 			case errors.Is(err, usecase.ErrDoctorNotFound):
 				c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 			case errors.Is(err, usecase.ErrDoctorServiceUnavailable):
-				c.JSON(http.StatusBadGateway, gin.H{"message": err.Error()})
+				c.JSON(http.StatusServiceUnavailable, gin.H{"message": err.Error()})
 			default:
 				c.JSON(http.StatusInternalServerError, gin.H{"message": "failed to create appointment"})
 			}
 			return
 		}
 
-		c.JSON(http.StatusCreated, appointment)
+		c.JSON(http.StatusCreated, newAppointmentResponse(appointment))
 	})
 	appointments.GET("", func(c *gin.Context) {
 		appointments, err := service.ListAppointments(c.Request.Context())
@@ -73,7 +92,7 @@ func NewRouter(doctorServiceBaseURL string, service *usecase.Service, registry *
 			return
 		}
 
-		c.JSON(http.StatusOK, appointments)
+		c.JSON(http.StatusOK, newAppointmentResponses(appointments))
 	})
 	appointments.GET("/:id", func(c *gin.Context) {
 		appointment, err := service.GetAppointment(c.Request.Context(), c.Param("id"))
@@ -87,7 +106,7 @@ func NewRouter(doctorServiceBaseURL string, service *usecase.Service, registry *
 			return
 		}
 
-		c.JSON(http.StatusOK, appointment)
+		c.JSON(http.StatusOK, newAppointmentResponse(appointment))
 	})
 	appointments.PATCH("/:id/status", func(c *gin.Context) {
 		var request updateStatusRequest
@@ -111,8 +130,29 @@ func NewRouter(doctorServiceBaseURL string, service *usecase.Service, registry *
 			return
 		}
 
-		c.JSON(http.StatusOK, appointment)
+		c.JSON(http.StatusOK, newAppointmentResponse(appointment))
 	})
 
 	return router
+}
+
+func newAppointmentResponse(appointment model.Appointment) appointmentResponse {
+	return appointmentResponse{
+		ID:          appointment.ID,
+		Title:       appointment.Title,
+		Description: appointment.Description,
+		DoctorID:    appointment.DoctorID,
+		Status:      string(appointment.Status),
+		CreatedAt:   appointment.CreatedAt,
+		UpdatedAt:   appointment.UpdatedAt,
+	}
+}
+
+func newAppointmentResponses(appointments []model.Appointment) []appointmentResponse {
+	responses := make([]appointmentResponse, 0, len(appointments))
+	for _, appointment := range appointments {
+		responses = append(responses, newAppointmentResponse(appointment))
+	}
+
+	return responses
 }

@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"net/mail"
 	"strings"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -11,7 +12,10 @@ import (
 	"med-go/internal/doctor/repository"
 )
 
-var ErrInvalidDoctorInput = errors.New("invalid doctor input")
+var (
+	ErrInvalidDoctorInput     = errors.New("invalid doctor input")
+	ErrDoctorEmailAlreadyUsed = errors.New("doctor email already exists")
+)
 
 type CreateDoctorInput struct {
 	FullName       string
@@ -23,6 +27,7 @@ type Repository interface {
 	Create(ctx context.Context, doctor model.Doctor) error
 	List(ctx context.Context) ([]model.Doctor, error)
 	GetByID(ctx context.Context, id string) (model.Doctor, error)
+	ExistsByEmail(ctx context.Context, email string) (bool, error)
 }
 
 type Service struct {
@@ -36,10 +41,18 @@ func NewService(repo Repository) *Service {
 func (s *Service) CreateDoctor(ctx context.Context, input CreateDoctorInput) (model.Doctor, error) {
 	fullName := strings.TrimSpace(input.FullName)
 	specialization := strings.TrimSpace(input.Specialization)
-	email := strings.TrimSpace(input.Email)
+	email := strings.ToLower(strings.TrimSpace(input.Email))
 
-	if fullName == "" || specialization == "" || !strings.Contains(email, "@") {
+	if fullName == "" || !isValidEmail(email) {
 		return model.Doctor{}, ErrInvalidDoctorInput
+	}
+
+	exists, err := s.repo.ExistsByEmail(ctx, email)
+	if err != nil {
+		return model.Doctor{}, err
+	}
+	if exists {
+		return model.Doctor{}, ErrDoctorEmailAlreadyUsed
 	}
 
 	doctor := model.Doctor{
@@ -50,6 +63,10 @@ func (s *Service) CreateDoctor(ctx context.Context, input CreateDoctorInput) (mo
 	}
 
 	if err := s.repo.Create(ctx, doctor); err != nil {
+		if errors.Is(err, repository.ErrDoctorEmailAlreadyExists) {
+			return model.Doctor{}, ErrDoctorEmailAlreadyUsed
+		}
+
 		return model.Doctor{}, err
 	}
 
@@ -71,4 +88,13 @@ func (s *Service) GetDoctor(ctx context.Context, id string) (model.Doctor, error
 	}
 
 	return doctor, nil
+}
+
+func isValidEmail(value string) bool {
+	address, err := mail.ParseAddress(value)
+	if err != nil {
+		return false
+	}
+
+	return address.Address == value
 }

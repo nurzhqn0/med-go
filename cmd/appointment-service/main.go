@@ -13,7 +13,6 @@ import (
 	"time"
 
 	appointmentapp "med-go/internal/appointment/app"
-	doctorapp "med-go/internal/doctor/app"
 	"med-go/internal/platform/mongodb"
 )
 
@@ -25,7 +24,6 @@ func main() {
 
 	mongoURI := getEnv("MONGODB_URI", "mongodb://localhost:27017")
 	mongoDatabaseName := getEnv("MONGODB_DATABASE", "med_go")
-	doctorAddress := getEnv("DOCTOR_SERVICE_ADDR", ":8081")
 	appointmentAddress := getEnv("APPOINTMENT_SERVICE_ADDR", ":8082")
 	doctorServiceBaseURL := getEnv("DOCTOR_SERVICE_BASE_URL", "http://localhost:8081")
 
@@ -45,17 +43,9 @@ func main() {
 		}
 	}()
 
-	database := mongoClient.Database(mongoDatabaseName)
+	appointmentService := appointmentapp.New(appointmentAddress, doctorServiceBaseURL, mongoClient.Database(mongoDatabaseName))
 
-	doctorService, err := doctorapp.New(ctx, doctorAddress, database)
-	if err != nil {
-		log.Fatalf("failed to initialize doctor-service: %v", err)
-	}
-	appointmentService := appointmentapp.New(appointmentAddress, doctorServiceBaseURL, database)
-
-	serverErrors := make(chan error, 2)
-
-	go serve("doctor-service", doctorService.Server, serverErrors)
+	serverErrors := make(chan error, 1)
 	go serve("appointment-service", appointmentService.Server, serverErrors)
 
 	select {
@@ -70,10 +60,6 @@ func main() {
 
 	if err := appointmentService.Server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("appointment-service shutdown failed: %v", err)
-	}
-
-	if err := doctorService.Server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("doctor-service shutdown failed: %v", err)
 	}
 }
 

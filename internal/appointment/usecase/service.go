@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -60,6 +61,7 @@ func (s *Service) CreateAppointment(ctx context.Context, input CreateAppointment
 
 	exists, err := s.doctorLookup.Exists(ctx, doctorID)
 	if err != nil {
+		log.Printf("doctor lookup failed for doctor_id=%s: %v", doctorID, err)
 		return model.Appointment{}, fmt.Errorf("%w: %v", ErrDoctorServiceUnavailable, err)
 	}
 

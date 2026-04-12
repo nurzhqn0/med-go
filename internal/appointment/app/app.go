@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"med-go/internal/appointment/client"
 	"med-go/internal/appointment/repository"
 	httptransport "med-go/internal/appointment/transport/http"
 	"med-go/internal/appointment/usecase"
@@ -18,7 +19,7 @@ type App struct {
 
 func New(addr, doctorServiceBaseURL string, database *mongo.Database) *App {
 	repo := repository.NewMongoRepository(database)
-	doctorClient := NewDoctorClient(doctorServiceBaseURL)
+	doctorClient := client.NewDoctorService(doctorServiceBaseURL)
 	service := usecase.NewService(repo, doctorClient)
 	registry := observability.NewRegistry()
 	metrics := observability.NewHTTPMetrics(registry)
