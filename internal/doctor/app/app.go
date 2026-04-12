@@ -2,19 +2,19 @@ package app
 
 import (
 	"context"
-	"net/http"
-	"time"
 
+	doctorpb "med-go/internal/doctor/proto"
 	"med-go/internal/doctor/repository"
-	httptransport "med-go/internal/doctor/transport/http"
+	grpctransport "med-go/internal/doctor/transport/grpc"
 	"med-go/internal/doctor/usecase"
-	"med-go/internal/platform/observability"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"google.golang.org/grpc"
 )
 
 type App struct {
-	Server *http.Server
+	Server  *grpc.Server
+	Address string
 }
 
 func New(ctx context.Context, addr string, database *mongo.Database) (*App, error) {
@@ -24,15 +24,11 @@ func New(ctx context.Context, addr string, database *mongo.Database) (*App, erro
 	}
 
 	service := usecase.NewService(repo)
-	registry := observability.NewRegistry()
-	metrics := observability.NewHTTPMetrics(registry)
-	router := httptransport.NewRouter(service, registry, metrics)
+	server := grpc.NewServer()
+	doctorpb.RegisterDoctorServiceServer(server, grpctransport.NewServer(service))
 
 	return &App{
-		Server: &http.Server{
-			Addr:              addr,
-			Handler:           router,
-			ReadHeaderTimeout: 5 * time.Second,
-		},
+		Server:  server,
+		Address: addr,
 	}, nil
 }

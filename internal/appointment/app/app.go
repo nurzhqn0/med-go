@@ -1,35 +1,34 @@
 package app
 
 import (
-	"net/http"
-	"time"
-
 	"med-go/internal/appointment/client"
+	appointmentpb "med-go/internal/appointment/proto"
 	"med-go/internal/appointment/repository"
-	httptransport "med-go/internal/appointment/transport/http"
+	grpctransport "med-go/internal/appointment/transport/grpc"
 	"med-go/internal/appointment/usecase"
-	"med-go/internal/platform/observability"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"google.golang.org/grpc"
 )
 
 type App struct {
-	Server *http.Server
+	Server  *grpc.Server
+	Address string
 }
 
-func New(addr, doctorServiceBaseURL string, database *mongo.Database) *App {
+func New(addr, doctorServiceAddress string, database *mongo.Database) (*App, error) {
 	repo := repository.NewMongoRepository(database)
-	doctorClient := client.NewDoctorService(doctorServiceBaseURL)
+	doctorClient, err := client.NewDoctorService(doctorServiceAddress)
+	if err != nil {
+		return nil, err
+	}
+
 	service := usecase.NewService(repo, doctorClient)
-	registry := observability.NewRegistry()
-	metrics := observability.NewHTTPMetrics(registry)
-	router := httptransport.NewRouter(doctorServiceBaseURL, service, registry, metrics)
+	server := grpc.NewServer()
+	appointmentpb.RegisterAppointmentServiceServer(server, grpctransport.NewServer(service))
 
 	return &App{
-		Server: &http.Server{
-			Addr:              addr,
-			Handler:           router,
-			ReadHeaderTimeout: 5 * time.Second,
-		},
-	}
+		Server:  server,
+		Address: addr,
+	}, nil
 }

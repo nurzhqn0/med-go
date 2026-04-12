@@ -2,53 +2,52 @@ package client
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"net/http"
-	"strings"
 	"time"
+
+	doctorpb "med-go/internal/doctor/proto"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
-var ErrDoctorServiceUnavailable = errors.New("doctor service unavailable")
-
 type DoctorService struct {
-	baseURL    string
-	httpClient *http.Client
+	client doctorpb.DoctorServiceClient
 }
 
-func NewDoctorService(baseURL string) *DoctorService {
-	return &DoctorService{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		httpClient: &http.Client{
-			Timeout: 3 * time.Second,
-		},
+func NewDoctorService(target string) (*DoctorService, error) {
+	connection, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
 	}
+
+	return &DoctorService{
+		client: doctorpb.NewDoctorServiceClient(connection),
+	}, nil
 }
 
 func (c *DoctorService) Exists(ctx context.Context, id string) (bool, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/doctors/%s", c.baseURL, id), nil)
-	if err != nil {
-		return false, err
-	}
+	callCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
 
-	response, err := c.httpClient.Do(request)
-	if err != nil {
-		return false, fmt.Errorf("%w: request failed: %v", ErrDoctorServiceUnavailable, err)
-	}
-	defer response.Body.Close()
-
-	switch response.StatusCode {
-	case http.StatusOK:
+	_, err := c.client.GetDoctor(callCtx, &doctorpb.GetDoctorRequest{Id: id})
+	if err == nil {
 		return true, nil
-	case http.StatusNotFound:
-		return false, nil
-	case http.StatusBadRequest:
-		return false, fmt.Errorf("doctor-service rejected lookup for doctor id %q", id)
-	default:
-		if response.StatusCode >= http.StatusInternalServerError {
-			return false, fmt.Errorf("%w: status %d", ErrDoctorServiceUnavailable, response.StatusCode)
-		}
+	}
 
-		return false, fmt.Errorf("unexpected doctor-service response status %d", response.StatusCode)
+	statusErr, ok := status.FromError(err)
+	if !ok {
+		return false, fmt.Errorf("doctor service call failed: %w", err)
+	}
+
+	switch statusErr.Code() {
+	case codes.NotFound:
+		return false, nil
+	case codes.Unavailable, codes.DeadlineExceeded:
+		return false, fmt.Errorf("doctor service unavailable: %w", err)
+	default:
+		return false, fmt.Errorf("doctor service request failed with %s: %w", statusErr.Code(), err)
 	}
 }

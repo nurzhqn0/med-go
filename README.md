@@ -1,168 +1,70 @@
-# Doctor Appointment System
+# Medical Scheduling Platform
 
-Two HTTP microservices in Go:
+Assignment 2 migrates the Medical Scheduling Platform from REST to gRPC while preserving the Clean Architecture layering and the bounded contexts from Assignment 1.
 
-- `doctor-service` owns doctor data
-- `appointment-service` owns appointment data
-- `appointment-service` validates doctor existence through REST, not through shared storage
+The system contains two services:
 
-The project stays in one repository and one Go module for coursework convenience, but each service now has its own runnable entrypoint:
+- `doctor-service` owns doctor profiles
+- `appointment-service` owns appointments and validates doctors through the Doctor Service over gRPC
 
-- `go run ./cmd/doctor-service`
-- `go run ./cmd/appointment-service`
+The repository stays runnable with `go run .`, as required by the assignment. The transport is now gRPC-only.
 
-For local convenience there is also a combined runner:
+## Project Purpose
 
-- `go run .`
+The purpose of the project is to demonstrate:
 
-## Project Overview And Purpose
+- Clean Architecture inside each service
+- explicit microservice boundaries
+- gRPC contract design with Protocol Buffers
+- synchronous inter-service communication through gRPC
+- correct propagation of gRPC status codes across service boundaries
 
-This project models a small medical scheduling platform split into two bounded contexts:
-
-- `doctor-service` manages doctor profiles
-- `appointment-service` manages appointments
-
-The goal of the assignment is not only to expose REST endpoints, but to demonstrate:
-
-- clean separation between delivery, use case, repository, and wiring layers
-- explicit service boundaries
-- independent data ownership
-- synchronous validation over HTTP instead of direct cross-service storage access
-
-For a simple system like this, a monolith would be easier to deploy. The project is intentionally decomposed into two services to demonstrate Clean Architecture and microservice boundaries in a controlled scope.
+The domain layer and business rules remain independent from protobuf-generated code. Only the delivery and client transport layers changed during the migration.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    Client["Client / Postman / curl"] --> DoctorHTTP["doctor-service HTTP transport"]
-    Client --> AppointmentHTTP["appointment-service HTTP transport"]
+    Client["grpcurl / gRPC client"] --> DoctorGRPC["doctor-service gRPC server (:8081)"]
+    Client --> AppointmentGRPC["appointment-service gRPC server (:8082)"]
 
-    DoctorHTTP --> DoctorUC["doctor use case"]
-    AppointmentHTTP --> AppointmentUC["appointment use case"]
+    DoctorGRPC --> DoctorUC["doctor use case"]
+    AppointmentGRPC --> AppointmentUC["appointment use case"]
 
     DoctorUC --> DoctorRepo["doctor repository"]
     AppointmentUC --> AppointmentRepo["appointment repository"]
-    AppointmentUC --> DoctorLookup["doctor-service REST client"]
+    AppointmentUC --> DoctorClient["doctor-service gRPC client"]
 
     DoctorRepo --> DoctorDB["MongoDB doctors collection"]
     AppointmentRepo --> AppointmentDB["MongoDB appointments collection"]
-    DoctorLookup --> DoctorHTTP
+    DoctorClient --> DoctorGRPC
 ```
 
-## Why This Is A Microservice Decomposition
-
-This is not just one codebase split into two handlers. The system has explicit service boundaries:
-
-- each service exposes its own HTTP API
-- each service owns its own repository implementation and data access logic
-- `appointment-service` does not query doctor storage directly
-- doctor existence is validated only through a REST call to `doctor-service`
-
-The project is still submitted as one repository and one root `go.mod` because the assignment also requires `go run .`. Even with that packaging choice, the runtime boundary is still service-to-service over HTTP, which keeps the decomposition meaningful.
-
-## Service Responsibilities
+## Service Responsibilities And Data Ownership
 
 `doctor-service`
 
+- owns doctor profile data
 - creates doctors
 - lists doctors
-- gets doctor by id
+- gets a doctor by id
 - enforces required `full_name`
 - enforces required valid `email`
 - enforces unique email across all doctors
 
 `appointment-service`
 
+- owns appointment data
 - creates appointments
 - lists appointments
-- gets appointment by id
+- gets an appointment by id
 - updates appointment status
-- validates that `doctor_id` exists by calling `doctor-service`
-- enforces appointment status rules
+- validates doctor existence by calling `doctor-service` over gRPC before creating an appointment
+- enforces status rules: `new`, `in_progress`, `done`, and forbids `done -> new`
 
-## Dependency Direction
+Each service owns its own repository implementation. The Appointment Service never reads Doctor Service storage directly.
 
-The dependency flow is:
-
-- `transport -> usecase -> repository/client`
-- handlers depend on interfaces, not concrete use case structs
-- domain models no longer contain HTTP JSON tags
-- MongoDB document mapping stays inside repositories
-
-This keeps HTTP concerns in transport and persistence concerns in repository code.
-
-## Inter-Service Communication
-
-`appointment-service` calls `doctor-service` before creating an appointment.
-
-HTTP contract used for validation:
-
-- request: `GET /doctors/:id`
-- `200 OK`: doctor exists, appointment flow may continue
-- `404 Not Found`: doctor does not exist, appointment creation is rejected
-- `5xx` or network failure: appointment creation is rejected with `503 Service Unavailable`
-
-The outbound call is implemented with:
-
-- `http.NewRequestWithContext(...)`
-- a dedicated HTTP client with a `3s` timeout
-- response body closing with `defer response.Body.Close()`
-- internal logging on failure
-
-## Data Ownership
-
-There is no shared doctor table read from `appointment-service`.
-
-- `doctor-service` owns doctor records
-- `appointment-service` stores only `doctor_id`
-- doctor existence is checked through `GET /doctors/:id`
-
-This makes the service boundary explicit and avoids hidden coupling through a shared database query.
-
-## Why A Shared Database Was Not Used
-
-A shared database would weaken the service boundary and turn the Appointment Service into a consumer of Doctor Service internals.
-
-That would cause a few problems:
-
-- repository-level coupling between bounded contexts
-- hidden dependencies that bypass the Doctor Service API
-- harder future changes to doctor storage schema
-- a design closer to a distributed monolith than to service decomposition
-
-By storing only `doctor_id` inside appointments and validating the doctor through REST, each service keeps ownership of its own data and rules.
-
-## Failure Behavior
-
-Doctor lookup from `appointment-service` uses:
-
-- context-aware outbound requests
-- a `3s` HTTP client timeout
-- internal logging when doctor lookup fails
-- `503 Service Unavailable` when `doctor-service` cannot be reached or returns `5xx`
-
-Validation failures still return `400`, missing resources return `404`, and duplicate doctor emails return `409`.
-
-## Production Resilience Trade-Offs
-
-For this assignment, a timeout and explicit error handling are enough. A full retry strategy or circuit breaker would be unnecessary complexity for such a small system.
-
-In a larger production system, these patterns would become useful when:
-
-- temporary network issues cause short-lived outbound failures
-- one service becomes slow and starts consuming worker threads in another service
-- repeated failures need fast rejection instead of waiting on every call
-
-Where they would fit:
-
-- timeout policy: already at the outbound doctor-service client
-- retry strategy: around transient network failures for safe idempotent reads such as `GET /doctors/:id`
-- circuit breaker: around the doctor lookup client to avoid hammering an unhealthy downstream service
-
-This assignment intentionally stops at timeout + descriptive failure handling + internal logging.
-
-## Project Structure
+## Folder Structure And Dependency Flow
 
 ```text
 .
@@ -174,20 +76,176 @@ This assignment intentionally stops at timeout + descriptive failure handling + 
 │   │   ├── app
 │   │   ├── client
 │   │   ├── model
+│   │   ├── proto
 │   │   ├── repository
-│   │   ├── transport/http
+│   │   ├── transport/grpc
 │   │   └── usecase
 │   ├── doctor
 │   │   ├── app
 │   │   ├── model
+│   │   ├── proto
 │   │   ├── repository
-│   │   ├── transport/http
+│   │   ├── transport/grpc
 │   │   └── usecase
 │   └── platform
+├── scripts
+│   └── generate_proto.sh
+├── grpcurl_commands.md
 ├── main.go
-├── postman_collection.json
 └── README.md
 ```
+
+Dependency direction:
+
+- `transport/grpc -> usecase -> repository/client`
+- `client -> generated doctor proto stub`
+- domain models do not import protobuf-generated types
+- use cases do not import protobuf-generated types
+- mapping between proto messages and domain models happens only in the gRPC delivery layer
+
+## Proto Contracts
+
+Owned proto files:
+
+- [internal/doctor/proto/doctor.proto](/Users/myrzanizimbetov/Desktop/med-go/internal/doctor/proto/doctor.proto)
+- [internal/appointment/proto/appointment.proto](/Users/myrzanizimbetov/Desktop/med-go/internal/appointment/proto/appointment.proto)
+
+Generated stubs committed to the repository:
+
+- [internal/doctor/proto/doctor.pb.go](/Users/myrzanizimbetov/Desktop/med-go/internal/doctor/proto/doctor.pb.go)
+- [internal/doctor/proto/doctor_grpc.pb.go](/Users/myrzanizimbetov/Desktop/med-go/internal/doctor/proto/doctor_grpc.pb.go)
+- [internal/appointment/proto/appointment.pb.go](/Users/myrzanizimbetov/Desktop/med-go/internal/appointment/proto/appointment.pb.go)
+- [internal/appointment/proto/appointment_grpc.pb.go](/Users/myrzanizimbetov/Desktop/med-go/internal/appointment/proto/appointment_grpc.pb.go)
+
+### DoctorService RPCs
+
+- `CreateDoctor(CreateDoctorRequest) returns (DoctorResponse)`
+  Enforces required `full_name`, required valid `email`, and unique email.
+- `GetDoctor(GetDoctorRequest) returns (DoctorResponse)`
+  Returns `NOT_FOUND` when the doctor id does not exist.
+- `ListDoctors(ListDoctorsRequest) returns (ListDoctorsResponse)`
+  Returns all doctors.
+
+### AppointmentService RPCs
+
+- `CreateAppointment(CreateAppointmentRequest) returns (AppointmentResponse)`
+  Enforces required `title`, required `doctor_id`, and validates doctor existence through `DoctorService.GetDoctor`.
+- `GetAppointment(GetAppointmentRequest) returns (AppointmentResponse)`
+  Returns `NOT_FOUND` when the appointment id does not exist.
+- `ListAppointments(ListAppointmentsRequest) returns (ListAppointmentsResponse)`
+  Returns all appointments.
+- `UpdateAppointmentStatus(UpdateStatusRequest) returns (AppointmentResponse)`
+  Enforces valid status values and rejects `done -> new`.
+
+## Inter-Service Communication
+
+`appointment-service` holds a gRPC client stub for the Doctor Service. That stub is hidden behind the `DoctorLookup` interface consumed by the appointment use case.
+
+Flow for appointment creation:
+
+1. The gRPC handler receives `CreateAppointmentRequest`.
+2. The handler maps proto fields to `usecase.CreateAppointmentInput`.
+3. The use case calls `DoctorLookup.Exists(ctx, doctorID)`.
+4. The gRPC client calls `doctor.DoctorService/GetDoctor`.
+5. The Appointment Service either continues or returns a gRPC error based on the result.
+
+Remote result handling:
+
+- Doctor Service returns `NOT_FOUND`: appointment creation returns `FAILED_PRECONDITION`
+- Doctor Service is unreachable or times out: appointment creation returns `UNAVAILABLE`
+- Doctor exists: appointment creation continues
+
+## gRPC Error Handling Strategy
+
+The project uses standard gRPC status codes from `google.golang.org/grpc/codes`.
+
+| Situation | gRPC code |
+| --- | --- |
+| Required field missing | `InvalidArgument` |
+| Email already in use | `AlreadyExists` |
+| Doctor id not found in Doctor Service RPC | `NotFound` |
+| Appointment id not found locally | `NotFound` |
+| Doctor Service unreachable | `Unavailable` |
+| Doctor does not exist during remote validation | `FailedPrecondition` |
+| Invalid status or invalid status transition | `InvalidArgument` |
+
+This mapping is implemented in the gRPC delivery layer, not inside the domain layer.
+
+## Failure Scenario
+
+If `doctor-service` is unavailable when `appointment-service` tries to validate `doctor_id`, the appointment must not be created.
+
+Current behavior:
+
+- the Appointment Service gRPC client uses a `3s` timeout
+- the failure is logged internally
+- the Appointment Service returns `codes.Unavailable` with a descriptive error
+
+This preserves the rule that cross-service validation is mandatory and prevents creating inconsistent appointment data.
+
+## Production Resilience Discussion
+
+This assignment stops at timeout + explicit error propagation, but larger systems would usually add more resilience behavior around the outbound Doctor Service call.
+
+Where each mechanism would fit:
+
+- timeout: already implemented at the outbound gRPC client call
+- retry: useful only for safe transient failures on idempotent reads such as `GetDoctor`
+- circuit breaker: useful when repeated downstream failures should quickly short-circuit instead of consuming resources on every request
+
+For this project, a full retry policy or circuit breaker would add complexity beyond the assignment scope.
+
+## REST vs gRPC Trade-Offs
+
+Three concrete differences:
+
+1. Contract format
+   REST commonly uses ad-hoc JSON payloads, while gRPC uses strongly typed `.proto` contracts and generated code.
+
+2. Performance and payload shape
+   REST with JSON is easier to inspect manually, while gRPC with Protocol Buffers is more compact and generally more efficient for service-to-service communication.
+
+3. Error model
+   REST usually communicates errors through HTTP status codes and JSON bodies, while gRPC has a standard application-level status model through `codes.Code`.
+
+When to choose each:
+
+- choose REST when public API accessibility, browser/debugger friendliness, and human-readable payloads matter most
+- choose gRPC when internal service-to-service communication, strong contracts, and generated client/server stubs matter more
+
+## Prerequisites
+
+- Go 1.25+
+- MongoDB running locally or available remotely
+- `protoc`
+- `protoc-gen-go`
+- `protoc-gen-go-grpc`
+- optional: `grpcurl` for manual testing
+
+## Installing Protobuf And gRPC Tooling
+
+Install `protoc`:
+
+- macOS with Homebrew: `brew install protobuf`
+
+Install Go plugins:
+
+```bash
+go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.10
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
+```
+
+Make sure `$(go env GOPATH)/bin` is on your `PATH`.
+
+## Regenerating Proto Stubs
+
+Run:
+
+```bash
+bash scripts/generate_proto.sh
+```
+
+This regenerates both services' `*.pb.go` and `*_grpc.pb.go` files from the committed `.proto` contracts.
 
 ## Configuration
 
@@ -198,172 +256,59 @@ MONGODB_URI=mongodb://localhost:27017
 MONGODB_DATABASE=med_go
 DOCTOR_SERVICE_ADDR=:8081
 APPOINTMENT_SERVICE_ADDR=:8082
-DOCTOR_SERVICE_BASE_URL=http://localhost:8081
+DOCTOR_SERVICE_GRPC_TARGET=127.0.0.1:8081
 ```
 
-The app reads `.env` automatically if present.
+The project reads `.env` automatically if present.
 
-## Run Locally
+## How To Run Locally
 
-Start MongoDB, for example:
+1. Start MongoDB.
+
+Example:
 
 ```bash
 docker run --name med-go-mongo -p 27017:27017 -d mongo:8
 ```
 
-Run services separately:
+2. Start `doctor-service`.
 
 ```bash
 go run ./cmd/doctor-service
+```
+
+3. Start `appointment-service`.
+
+```bash
 go run ./cmd/appointment-service
 ```
 
-Or run both from one process:
+Recommended startup order is Doctor Service first, then Appointment Service.
+
+You can also start both services from one process:
 
 ```bash
 go run .
 ```
 
-This root command exists because the assignment explicitly requires a runnable submission via `go run .`.
+The root command starts:
 
-## Docker
+- `doctor-service` on `:8081`
+- `appointment-service` on `:8082`
 
-Start the default stack:
+## Testing Artifact
 
-```bash
-docker compose up --build -d
-```
+Manual RPC examples are available in [grpcurl_commands.md](/Users/myrzanizimbetov/Desktop/med-go/grpcurl_commands.md).
 
-This exposes:
+These commands demonstrate:
 
-- `127.0.0.1:8081` for `doctor-service`
-- `127.0.0.1:8082` for `appointment-service`
-
-Stop it:
-
-```bash
-docker compose down
-```
-
-Optional reverse proxy profile:
-
-```bash
-docker compose --profile proxy up --build -d
-```
-
-## API
-
-A ready-to-import Postman collection is available in [postman_collection.json](/Users/myrzanizimbetov/Desktop/med-go/postman_collection.json).
-
-### Doctor Service
-
-`POST /doctors`
-
-```json
-{
-  "full_name": "Dr. Alice Brown",
-  "specialization": "Cardiology",
-  "email": "alice.brown@example.com"
-}
-```
-
-`specialization` is optional. `full_name` and `email` are required.
-
-Example:
-
-```bash
-curl -s -X POST http://localhost:8081/doctors \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "full_name":"Dr. Alice Brown",
-    "specialization":"Cardiology",
-    "email":"alice.brown@example.com"
-  }'
-```
-
-List doctors:
-
-```bash
-curl -s http://localhost:8081/doctors
-```
-
-Get doctor by id:
-
-```bash
-curl -s http://localhost:8081/doctors/<doctor_id>
-```
-
-### Appointment Service
-
-`POST /appointments`
-
-```json
-{
-  "title": "Initial Consultation",
-  "description": "Review chest pain symptoms",
-  "doctor_id": "<doctor_id>"
-}
-```
-
-Example:
-
-```bash
-curl -s -X POST http://localhost:8082/appointments \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "title":"Initial Consultation",
-    "description":"Review chest pain symptoms",
-    "doctor_id":"<doctor_id>"
-  }'
-```
-
-List appointments:
-
-```bash
-curl -s http://localhost:8082/appointments
-```
-
-Get appointment by id:
-
-```bash
-curl -s http://localhost:8082/appointments/<appointment_id>
-```
-
-Update status:
-
-```bash
-curl -s -X PATCH http://localhost:8082/appointments/<appointment_id>/status \
-  -H 'Content-Type: application/json' \
-  -d '{"status":"in_progress"}'
-```
-
-Supported statuses:
-
-- `new`
-- `in_progress`
-- `done`
-
-Forbidden transition:
-
-- `done -> new`
-
-## Observability
-
-Start the observability profile:
-
-```bash
-docker compose --profile observability up --build -d
-```
-
-Available endpoints:
-
-- Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000`
-- Doctor metrics: `http://localhost:8081/metrics`
-- Appointment metrics: `http://localhost:8082/metrics`
+- all doctor RPCs
+- all appointment RPCs
+- the exact method names and request shapes expected by the gRPC services
 
 ## Notes
 
-- if MongoDB is unavailable, startup fails fast
-- doctor emails are normalized to lowercase before storing
-- `doctor-service` creates a unique MongoDB index on `email`
+- `go test ./...` passes
+- domain models remain transport-agnostic
+- use cases remain independent from protobuf-generated code
+- generated protobuf stubs are committed so the project compiles without regeneration during grading

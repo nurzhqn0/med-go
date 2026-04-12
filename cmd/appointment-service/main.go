@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"log"
-	"net/http"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -14,6 +14,8 @@ import (
 
 	appointmentapp "med-go/internal/appointment/app"
 	"med-go/internal/platform/mongodb"
+
+	"google.golang.org/grpc"
 )
 
 func main() {
@@ -25,7 +27,7 @@ func main() {
 	mongoURI := getEnv("MONGODB_URI", "mongodb://localhost:27017")
 	mongoDatabaseName := getEnv("MONGODB_DATABASE", "med_go")
 	appointmentAddress := getEnv("APPOINTMENT_SERVICE_ADDR", ":8082")
-	doctorServiceBaseURL := getEnv("DOCTOR_SERVICE_BASE_URL", "http://localhost:8081")
+	doctorServiceTarget := getEnv("DOCTOR_SERVICE_GRPC_TARGET", "127.0.0.1:8081")
 
 	connectCtx, connectCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer connectCancel()
@@ -43,10 +45,13 @@ func main() {
 		}
 	}()
 
-	appointmentService := appointmentapp.New(appointmentAddress, doctorServiceBaseURL, mongoClient.Database(mongoDatabaseName))
+	appointmentService, err := appointmentapp.New(appointmentAddress, doctorServiceTarget, mongoClient.Database(mongoDatabaseName))
+	if err != nil {
+		log.Fatalf("failed to initialize appointment-service: %v", err)
+	}
 
 	serverErrors := make(chan error, 1)
-	go serve("appointment-service", appointmentService.Server, serverErrors)
+	go serve("appointment-service", appointmentService.Address, appointmentService.Server, serverErrors)
 
 	select {
 	case err := <-serverErrors:
@@ -58,15 +63,29 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := appointmentService.Server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("appointment-service shutdown failed: %v", err)
+	stopped := make(chan struct{})
+	go func() {
+		appointmentService.Server.GracefulStop()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-shutdownCtx.Done():
+		appointmentService.Server.Stop()
 	}
 }
 
-func serve(name string, server *http.Server, serverErrors chan<- error) {
-	log.Printf("%s listening on %s", name, server.Addr)
+func serve(name, addr string, server *grpc.Server, serverErrors chan<- error) {
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		serverErrors <- err
+		return
+	}
 
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	log.Printf("%s listening on %s", name, addr)
+
+	if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 		serverErrors <- err
 	}
 }
