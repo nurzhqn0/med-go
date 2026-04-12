@@ -15,6 +15,22 @@ For local convenience there is also a combined runner:
 
 - `go run .`
 
+## Project Overview And Purpose
+
+This project models a small medical scheduling platform split into two bounded contexts:
+
+- `doctor-service` manages doctor profiles
+- `appointment-service` manages appointments
+
+The goal of the assignment is not only to expose REST endpoints, but to demonstrate:
+
+- clean separation between delivery, use case, repository, and wiring layers
+- explicit service boundaries
+- independent data ownership
+- synchronous validation over HTTP instead of direct cross-service storage access
+
+For a simple system like this, a monolith would be easier to deploy. The project is intentionally decomposed into two services to demonstrate Clean Architecture and microservice boundaries in a controlled scope.
+
 ## Architecture
 
 ```mermaid
@@ -33,6 +49,17 @@ flowchart LR
     AppointmentRepo --> AppointmentDB["MongoDB appointments collection"]
     DoctorLookup --> DoctorHTTP
 ```
+
+## Why This Is A Microservice Decomposition
+
+This is not just one codebase split into two handlers. The system has explicit service boundaries:
+
+- each service exposes its own HTTP API
+- each service owns its own repository implementation and data access logic
+- `appointment-service` does not query doctor storage directly
+- doctor existence is validated only through a REST call to `doctor-service`
+
+The project is still submitted as one repository and one root `go.mod` because the assignment also requires `go run .`. Even with that packaging choice, the runtime boundary is still service-to-service over HTTP, which keeps the decomposition meaningful.
 
 ## Service Responsibilities
 
@@ -65,6 +92,24 @@ The dependency flow is:
 
 This keeps HTTP concerns in transport and persistence concerns in repository code.
 
+## Inter-Service Communication
+
+`appointment-service` calls `doctor-service` before creating an appointment.
+
+HTTP contract used for validation:
+
+- request: `GET /doctors/:id`
+- `200 OK`: doctor exists, appointment flow may continue
+- `404 Not Found`: doctor does not exist, appointment creation is rejected
+- `5xx` or network failure: appointment creation is rejected with `503 Service Unavailable`
+
+The outbound call is implemented with:
+
+- `http.NewRequestWithContext(...)`
+- a dedicated HTTP client with a `3s` timeout
+- response body closing with `defer response.Body.Close()`
+- internal logging on failure
+
 ## Data Ownership
 
 There is no shared doctor table read from `appointment-service`.
@@ -74,6 +119,19 @@ There is no shared doctor table read from `appointment-service`.
 - doctor existence is checked through `GET /doctors/:id`
 
 This makes the service boundary explicit and avoids hidden coupling through a shared database query.
+
+## Why A Shared Database Was Not Used
+
+A shared database would weaken the service boundary and turn the Appointment Service into a consumer of Doctor Service internals.
+
+That would cause a few problems:
+
+- repository-level coupling between bounded contexts
+- hidden dependencies that bypass the Doctor Service API
+- harder future changes to doctor storage schema
+- a design closer to a distributed monolith than to service decomposition
+
+By storing only `doctor_id` inside appointments and validating the doctor through REST, each service keeps ownership of its own data and rules.
 
 ## Failure Behavior
 
@@ -85,6 +143,24 @@ Doctor lookup from `appointment-service` uses:
 - `503 Service Unavailable` when `doctor-service` cannot be reached or returns `5xx`
 
 Validation failures still return `400`, missing resources return `404`, and duplicate doctor emails return `409`.
+
+## Production Resilience Trade-Offs
+
+For this assignment, a timeout and explicit error handling are enough. A full retry strategy or circuit breaker would be unnecessary complexity for such a small system.
+
+In a larger production system, these patterns would become useful when:
+
+- temporary network issues cause short-lived outbound failures
+- one service becomes slow and starts consuming worker threads in another service
+- repeated failures need fast rejection instead of waiting on every call
+
+Where they would fit:
+
+- timeout policy: already at the outbound doctor-service client
+- retry strategy: around transient network failures for safe idempotent reads such as `GET /doctors/:id`
+- circuit breaker: around the doctor lookup client to avoid hammering an unhealthy downstream service
+
+This assignment intentionally stops at timeout + descriptive failure handling + internal logging.
 
 ## Project Structure
 
@@ -109,6 +185,7 @@ Validation failures still return `400`, missing resources return `404`, and dupl
 │   │   └── usecase
 │   └── platform
 ├── main.go
+├── postman_collection.json
 └── README.md
 ```
 
@@ -147,6 +224,8 @@ Or run both from one process:
 go run .
 ```
 
+This root command exists because the assignment explicitly requires a runnable submission via `go run .`.
+
 ## Docker
 
 Start the default stack:
@@ -173,6 +252,8 @@ docker compose --profile proxy up --build -d
 ```
 
 ## API
+
+A ready-to-import Postman collection is available in [postman_collection.json](/Users/myrzanizimbetov/Desktop/med-go/postman_collection.json).
 
 ### Doctor Service
 
