@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -90,12 +92,56 @@ func (r *MongoRepository) ExistsByEmail(ctx context.Context, email string) (bool
 }
 
 func (r *MongoRepository) ensureIndexes(ctx context.Context) error {
-	_, err := r.collection.Indexes().CreateOne(ctx, mongo.IndexModel{
+	duplicates, err := r.findDuplicateEmails(ctx)
+	if err != nil {
+		return err
+	}
+	if len(duplicates) > 0 {
+		return fmt.Errorf("cannot create unique doctor email index until duplicate emails are removed: %s", strings.Join(duplicates, ", "))
+	}
+
+	_, err = r.collection.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys:    bson.D{{Key: "email", Value: 1}},
 		Options: options.Index().SetUnique(true).SetName("uniq_doctor_email"),
 	})
+	if mongo.IsDuplicateKeyError(err) {
+		return errors.New("cannot create unique doctor email index because duplicate emails already exist")
+	}
 
 	return err
+}
+
+func (r *MongoRepository) findDuplicateEmails(ctx context.Context) ([]string, error) {
+	cursor, err := r.collection.Aggregate(ctx, mongo.Pipeline{
+		bson.D{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: "$email"},
+			{Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}},
+		}}},
+		bson.D{{Key: "$match", Value: bson.D{
+			{Key: "_id", Value: bson.D{{Key: "$ne", Value: ""}}},
+			{Key: "count", Value: bson.D{{Key: "$gt", Value: 1}}},
+		}}},
+		bson.D{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
+		bson.D{{Key: "$limit", Value: 10}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var rows []struct {
+		Email string `bson:"_id"`
+	}
+	if err := cursor.All(ctx, &rows); err != nil {
+		return nil, err
+	}
+
+	duplicates := make([]string, 0, len(rows))
+	for _, row := range rows {
+		duplicates = append(duplicates, row.Email)
+	}
+
+	return duplicates, nil
 }
 
 func doctorToDocument(doctor model.Doctor) doctorDocument {
