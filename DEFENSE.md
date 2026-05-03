@@ -9,12 +9,27 @@ docker compose up -d postgres nats
 docker compose ps
 ```
 
+Full Docker Compose mode:
+
+```bash
+docker compose up --build
+```
+
 Expected:
 
 - `postgres` is running and healthy.
 - `nats` is running and healthy.
+- If using full Docker Compose mode, all three services are also running.
 
 ## 2. Start Services
+
+Quick local mode:
+
+```bash
+go run .
+```
+
+This starts Doctor Service, Appointment Service, and Notification Service in one process. For defense, separate terminals are usually easier to show, especially for Notification Service logs.
 
 Terminal 1:
 
@@ -102,11 +117,11 @@ Rollback:
 
 ```bash
 migrate -path doctor-service/migrations \
-  -database "postgres://postgres:postgres@localhost:5432/doctor_service?sslmode=disable" \
+  -database "postgres://postgres:postgres@localhost:5433/doctor_service?sslmode=disable" \
   down 1
 
 migrate -path appointment-service/migrations \
-  -database "postgres://postgres:postgres@localhost:5432/appointment_service?sslmode=disable" \
+  -database "postgres://postgres:postgres@localhost:5433/appointment_service?sslmode=disable" \
   down 1
 ```
 
@@ -114,11 +129,11 @@ Apply again:
 
 ```bash
 migrate -path doctor-service/migrations \
-  -database "postgres://postgres:postgres@localhost:5432/doctor_service?sslmode=disable" \
+  -database "postgres://postgres:postgres@localhost:5433/doctor_service?sslmode=disable" \
   up
 
 migrate -path appointment-service/migrations \
-  -database "postgres://postgres:postgres@localhost:5432/appointment_service?sslmode=disable" \
+  -database "postgres://postgres:postgres@localhost:5433/appointment_service?sslmode=disable" \
   up
 ```
 

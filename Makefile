@@ -1,18 +1,27 @@
-DOCTOR_DB_URL ?= postgres://postgres:postgres@localhost:5432/doctor_service?sslmode=disable
-APPOINTMENT_DB_URL ?= postgres://postgres:postgres@localhost:5432/appointment_service?sslmode=disable
+DOCTOR_DB_URL ?= postgres://postgres:postgres@localhost:5433/doctor_service?sslmode=disable
+APPOINTMENT_DB_URL ?= postgres://postgres:postgres@localhost:5433/appointment_service?sslmode=disable
 NATS_URL ?= nats://localhost:4222
 DOCTOR_ADDR ?= :8081
 APPOINTMENT_ADDR ?= :8082
 DOCTOR_TARGET ?= 127.0.0.1:8081
 GOCACHE_DIR ?= /private/tmp/med-go-gocache
 
-.PHONY: test infra-up infra-down doctor appointment notification migrate-up migrate-down verify docker-config
+.PHONY: run test infra-up stack-up stack-down infra-down doctor appointment notification migrate-up migrate-down verify docker-config
+
+run:
+	go run .
 
 test:
 	GOCACHE=$(GOCACHE_DIR) go test ./...
 
 infra-up:
 	docker compose up -d postgres nats
+
+stack-up:
+	docker compose up --build
+
+stack-down:
+	docker compose down
 
 infra-down:
 	docker compose down

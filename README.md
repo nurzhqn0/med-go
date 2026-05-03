@@ -29,7 +29,7 @@ Notification Service does not expose HTTP/gRPC, does not call other services, an
 Doctor Service:
 
 ```bash
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/doctor_service?sslmode=disable
+DATABASE_URL=postgres://postgres:postgres@localhost:5433/doctor_service?sslmode=disable
 NATS_URL=nats://localhost:4222
 DOCTOR_SERVICE_ADDR=:8081
 ```
@@ -37,7 +37,7 @@ DOCTOR_SERVICE_ADDR=:8081
 Appointment Service:
 
 ```bash
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/appointment_service?sslmode=disable
+DATABASE_URL=postgres://postgres:postgres@localhost:5433/appointment_service?sslmode=disable
 NATS_URL=nats://localhost:4222
 APPOINTMENT_SERVICE_ADDR=:8082
 DOCTOR_SERVICE_GRPC_TARGET=127.0.0.1:8081
@@ -53,16 +53,20 @@ The root combined binary also supports `DOCTOR_DATABASE_URL` and `APPOINTMENT_DA
 
 ## Infrastructure Setup
 
-Start PostgreSQL and NATS:
+Start the full stack:
 
 ```bash
-docker compose up -d postgres nats
+docker compose up --build
 ```
 
-The compose file creates two PostgreSQL databases:
+The compose file starts:
 
 - `doctor_service`
 - `appointment_service`
+- `doctor-service`
+- `appointment-service`
+- `notification-service`
+- `nats`
 
 ## Migrations
 
@@ -79,11 +83,11 @@ Manual rollback examples:
 
 ```bash
 migrate -path doctor-service/migrations \
-  -database "postgres://postgres:postgres@localhost:5432/doctor_service?sslmode=disable" \
+  -database "postgres://postgres:postgres@localhost:5433/doctor_service?sslmode=disable" \
   down 1
 
 migrate -path appointment-service/migrations \
-  -database "postgres://postgres:postgres@localhost:5432/appointment_service?sslmode=disable" \
+  -database "postgres://postgres:postgres@localhost:5433/appointment_service?sslmode=disable" \
   down 1
 ```
 
@@ -91,11 +95,11 @@ Manual apply examples:
 
 ```bash
 migrate -path doctor-service/migrations \
-  -database "postgres://postgres:postgres@localhost:5432/doctor_service?sslmode=disable" \
+  -database "postgres://postgres:postgres@localhost:5433/doctor_service?sslmode=disable" \
   up
 
 migrate -path appointment-service/migrations \
-  -database "postgres://postgres:postgres@localhost:5432/appointment_service?sslmode=disable" \
+  -database "postgres://postgres:postgres@localhost:5433/appointment_service?sslmode=disable" \
   up
 ```
 
@@ -107,11 +111,25 @@ Start infrastructure first:
 docker compose up -d postgres nats
 ```
 
+Or start the complete Docker Compose stack:
+
+```bash
+docker compose up --build
+```
+
+For a local all-in-one run from the repository root:
+
+```bash
+go run .
+```
+
+This starts Doctor Service, Appointment Service, and the Notification Service subscriber in one process. For defense, the three-terminal service startup below is still clearer because the Notification Service logs are isolated.
+
 Start Doctor Service:
 
 ```bash
 cd doctor-service
-DATABASE_URL="postgres://postgres:postgres@localhost:5432/doctor_service?sslmode=disable" \
+DATABASE_URL="postgres://postgres:postgres@localhost:5433/doctor_service?sslmode=disable" \
 NATS_URL="nats://localhost:4222" \
 DOCTOR_SERVICE_ADDR=":8081" \
 go run .
@@ -121,7 +139,7 @@ Start Appointment Service:
 
 ```bash
 cd appointment-service
-DATABASE_URL="postgres://postgres:postgres@localhost:5432/appointment_service?sslmode=disable" \
+DATABASE_URL="postgres://postgres:postgres@localhost:5433/appointment_service?sslmode=disable" \
 NATS_URL="nats://localhost:4222" \
 APPOINTMENT_SERVICE_ADDR=":8082" \
 DOCTOR_SERVICE_GRPC_TARGET="127.0.0.1:8081" \

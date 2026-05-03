@@ -9,6 +9,7 @@ import (
 
 	appointmentapp "med-go/internal/appointment/app"
 	doctorapp "med-go/internal/doctor/app"
+	"med-go/internal/notification/subscriber"
 	"med-go/internal/platform/bootstrap"
 )
 
@@ -34,10 +35,37 @@ func main() {
 	}
 	defer appointmentService.Close()
 
-	if err := bootstrap.RunGRPCServices(ctx,
-		bootstrap.Service{Name: "doctor-service", Address: doctorService.Address, Server: doctorService.Server},
-		bootstrap.Service{Name: "appointment-service", Address: appointmentService.Address, Server: appointmentService.Server},
-	); err != nil {
-		log.Fatalf("server exited with error: %v", err)
+	notifications, err := subscriber.New(config.NATSURL)
+	if err != nil {
+		log.Fatalf("failed to initialize notification-service: %v", err)
+	}
+
+	runtimeCtx, runtimeCancel := context.WithCancel(ctx)
+	defer runtimeCancel()
+
+	errs := make(chan error, 2)
+	go func() {
+		errs <- bootstrap.RunGRPCServices(runtimeCtx,
+			bootstrap.Service{Name: "doctor-service", Address: doctorService.Address, Server: doctorService.Server},
+			bootstrap.Service{Name: "appointment-service", Address: appointmentService.Address, Server: appointmentService.Server},
+		)
+	}()
+
+	go func() {
+		log.Println("notification-service subscribed to NATS subjects")
+		errs <- notifications.Run(runtimeCtx)
+	}()
+
+	select {
+	case err := <-errs:
+		runtimeCancel()
+		if err != nil {
+			log.Fatalf("service exited with error: %v", err)
+		}
+	case <-ctx.Done():
+		runtimeCancel()
+		if err := <-errs; err != nil {
+			log.Fatalf("shutdown failed: %v", err)
+		}
 	}
 }
