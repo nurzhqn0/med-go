@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"med-go/internal/appointment/model"
 )
@@ -74,4 +75,21 @@ func (r *MemoryRepository) Update(_ context.Context, appointment model.Appointme
 	r.appointments[appointment.ID] = appointment
 
 	return nil
+}
+
+func (r *MemoryRepository) UpdateStatus(_ context.Context, id string, status model.Status, updatedAt time.Time) (model.Appointment, model.Status, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	appointment, ok := r.appointments[id]
+	if !ok {
+		return model.Appointment{}, "", ErrAppointmentNotFound
+	}
+
+	oldStatus := appointment.Status
+	appointment.Status = status
+	appointment.UpdatedAt = updatedAt
+	r.appointments[id] = appointment
+
+	return appointment, oldStatus, nil
 }

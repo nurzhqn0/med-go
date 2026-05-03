@@ -44,7 +44,7 @@ func (s *Server) CreateAppointment(ctx context.Context, request *appointmentpb.C
 		case errors.Is(err, usecase.ErrDoctorServiceUnavailable):
 			return nil, status.Error(codes.Unavailable, err.Error())
 		default:
-			return nil, status.Error(codes.Internal, "failed to create appointment")
+			return nil, status.Errorf(codes.Internal, "failed to create appointment: %v", err)
 		}
 	}
 
@@ -58,7 +58,7 @@ func (s *Server) GetAppointment(ctx context.Context, request *appointmentpb.GetA
 		case errors.Is(err, repository.ErrAppointmentNotFound):
 			return nil, status.Error(codes.NotFound, err.Error())
 		default:
-			return nil, status.Error(codes.Internal, "failed to get appointment")
+			return nil, status.Errorf(codes.Internal, "failed to get appointment: %v", err)
 		}
 	}
 
@@ -68,7 +68,7 @@ func (s *Server) GetAppointment(ctx context.Context, request *appointmentpb.GetA
 func (s *Server) ListAppointments(ctx context.Context, _ *appointmentpb.ListAppointmentsRequest) (*appointmentpb.ListAppointmentsResponse, error) {
 	appointments, err := s.service.ListAppointments(ctx)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to list appointments")
+		return nil, status.Errorf(codes.Internal, "failed to list appointments: %v", err)
 	}
 
 	response := &appointmentpb.ListAppointmentsResponse{
@@ -92,7 +92,7 @@ func (s *Server) UpdateAppointmentStatus(ctx context.Context, request *appointme
 		case errors.Is(err, usecase.ErrInvalidStatusTransition):
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		default:
-			return nil, status.Error(codes.Internal, "failed to update appointment")
+			return nil, status.Errorf(codes.Internal, "failed to update appointment: %v", err)
 		}
 	}
 

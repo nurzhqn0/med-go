@@ -8,10 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"go.mongodb.org/mongo-driver/v2/bson"
-
 	"med-go/internal/appointment/model"
 	"med-go/internal/appointment/repository"
+	"med-go/internal/platform/id"
 )
 
 var (
@@ -32,21 +31,34 @@ type Repository interface {
 	List(ctx context.Context) ([]model.Appointment, error)
 	GetByID(ctx context.Context, id string) (model.Appointment, error)
 	Update(ctx context.Context, appointment model.Appointment) error
+	UpdateStatus(ctx context.Context, id string, status model.Status, updatedAt time.Time) (model.Appointment, model.Status, error)
 }
 
 type DoctorLookup interface {
 	Exists(ctx context.Context, id string) (bool, error)
 }
 
+type EventPublisher interface {
+	PublishAppointmentCreated(ctx context.Context, appointment model.Appointment) error
+	PublishAppointmentStatusUpdated(ctx context.Context, appointment model.Appointment, oldStatus model.Status) error
+}
+
 type Service struct {
 	repo         Repository
 	doctorLookup DoctorLookup
+	publisher    EventPublisher
 }
 
-func NewService(repo Repository, doctorLookup DoctorLookup) *Service {
+func NewService(repo Repository, doctorLookup DoctorLookup, publishers ...EventPublisher) *Service {
+	var publisher EventPublisher
+	if len(publishers) > 0 {
+		publisher = publishers[0]
+	}
+
 	return &Service{
 		repo:         repo,
 		doctorLookup: doctorLookup,
+		publisher:    publisher,
 	}
 }
 
@@ -70,8 +82,13 @@ func (s *Service) CreateAppointment(ctx context.Context, input CreateAppointment
 	}
 
 	now := time.Now().UTC()
+	appointmentID, err := id.New()
+	if err != nil {
+		return model.Appointment{}, err
+	}
+
 	appointment := model.Appointment{
-		ID:          bson.NewObjectID().Hex(),
+		ID:          appointmentID,
 		Title:       title,
 		Description: description,
 		DoctorID:    doctorID,
@@ -84,6 +101,12 @@ func (s *Service) CreateAppointment(ctx context.Context, input CreateAppointment
 		return model.Appointment{}, err
 	}
 
+	if s.publisher != nil {
+		if err := s.publisher.PublishAppointmentCreated(ctx, appointment); err != nil {
+			log.Printf("failed to publish appointments.created appointment_id=%s: %v", appointment.ID, err)
+		}
+	}
+
 	return appointment, nil
 }
 
@@ -92,7 +115,8 @@ func (s *Service) ListAppointments(ctx context.Context) ([]model.Appointment, er
 }
 
 func (s *Service) GetAppointment(ctx context.Context, id string) (model.Appointment, error) {
-	appointment, err := s.repo.GetByID(ctx, strings.TrimSpace(id))
+	appointmentID := strings.TrimSpace(id)
+	appointment, err := s.repo.GetByID(ctx, appointmentID)
 	if err != nil {
 		if errors.Is(err, repository.ErrAppointmentNotFound) {
 			return model.Appointment{}, repository.ErrAppointmentNotFound
@@ -105,7 +129,8 @@ func (s *Service) GetAppointment(ctx context.Context, id string) (model.Appointm
 }
 
 func (s *Service) UpdateStatus(ctx context.Context, id string, rawStatus string) (model.Appointment, error) {
-	appointment, err := s.repo.GetByID(ctx, strings.TrimSpace(id))
+	appointmentID := strings.TrimSpace(id)
+	appointment, err := s.repo.GetByID(ctx, appointmentID)
 	if err != nil {
 		if errors.Is(err, repository.ErrAppointmentNotFound) {
 			return model.Appointment{}, repository.ErrAppointmentNotFound
@@ -123,10 +148,8 @@ func (s *Service) UpdateStatus(ctx context.Context, id string, rawStatus string)
 		return model.Appointment{}, fmt.Errorf("%w: %s -> %s", ErrInvalidStatusTransition, appointment.Status, status)
 	}
 
-	appointment.Status = status
-	appointment.UpdatedAt = time.Now().UTC()
-
-	if err := s.repo.Update(ctx, appointment); err != nil {
+	updatedAppointment, oldStatus, err := s.repo.UpdateStatus(ctx, appointmentID, status, time.Now().UTC())
+	if err != nil {
 		if errors.Is(err, repository.ErrAppointmentNotFound) {
 			return model.Appointment{}, repository.ErrAppointmentNotFound
 		}
@@ -134,5 +157,11 @@ func (s *Service) UpdateStatus(ctx context.Context, id string, rawStatus string)
 		return model.Appointment{}, err
 	}
 
-	return appointment, nil
+	if s.publisher != nil {
+		if err := s.publisher.PublishAppointmentStatusUpdated(ctx, updatedAppointment, oldStatus); err != nil {
+			log.Printf("failed to publish appointments.status_updated appointment_id=%s: %v", updatedAppointment.ID, err)
+		}
+	}
+
+	return updatedAppointment, nil
 }

@@ -41,7 +41,7 @@ func (s *Server) CreateDoctor(ctx context.Context, request *doctorpb.CreateDocto
 		case errors.Is(err, usecase.ErrDoctorEmailAlreadyUsed):
 			return nil, status.Error(codes.AlreadyExists, err.Error())
 		default:
-			return nil, status.Error(codes.Internal, "failed to create doctor")
+			return nil, status.Errorf(codes.Internal, "failed to create doctor: %v", err)
 		}
 	}
 
@@ -55,7 +55,7 @@ func (s *Server) GetDoctor(ctx context.Context, request *doctorpb.GetDoctorReque
 		case errors.Is(err, repository.ErrDoctorNotFound):
 			return nil, status.Error(codes.NotFound, err.Error())
 		default:
-			return nil, status.Error(codes.Internal, "failed to get doctor")
+			return nil, status.Errorf(codes.Internal, "failed to get doctor: %v", err)
 		}
 	}
 
@@ -65,7 +65,7 @@ func (s *Server) GetDoctor(ctx context.Context, request *doctorpb.GetDoctorReque
 func (s *Server) ListDoctors(ctx context.Context, _ *doctorpb.ListDoctorsRequest) (*doctorpb.ListDoctorsResponse, error) {
 	doctors, err := s.service.ListDoctors(ctx)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to list doctors")
+		return nil, status.Errorf(codes.Internal, "failed to list doctors: %v", err)
 	}
 
 	response := &doctorpb.ListDoctorsResponse{

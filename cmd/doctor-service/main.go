@@ -9,7 +9,6 @@ import (
 
 	doctorapp "med-go/internal/doctor/app"
 	"med-go/internal/platform/bootstrap"
-	"med-go/internal/platform/mongodb"
 )
 
 func main() {
@@ -19,26 +18,14 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	connectCtx, connectCancel := context.WithTimeout(ctx, 10*time.Second)
-	defer connectCancel()
+	startupCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 
-	mongoClient, err := mongodb.Connect(connectCtx, config.MongoURI)
-	if err != nil {
-		log.Fatalf("failed to connect to MongoDB: %v", err)
-	}
-	defer func() {
-		disconnectCtx, disconnectCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer disconnectCancel()
-
-		if err := mongoClient.Disconnect(disconnectCtx); err != nil {
-			log.Printf("mongo disconnect failed: %v", err)
-		}
-	}()
-
-	doctorService, err := doctorapp.New(ctx, config.DoctorAddress, mongoClient.Database(config.MongoDatabaseName))
+	doctorService, err := doctorapp.New(startupCtx, config.DoctorAddress, config.DatabaseURL, config.NATSURL, "../../doctor-service/migrations")
 	if err != nil {
 		log.Fatalf("failed to initialize doctor-service: %v", err)
 	}
+	defer doctorService.Close()
 
 	if err := bootstrap.RunGRPCServices(ctx,
 		bootstrap.Service{Name: "doctor-service", Address: doctorService.Address, Server: doctorService.Server},

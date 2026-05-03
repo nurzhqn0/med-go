@@ -3,13 +3,13 @@ package usecase
 import (
 	"context"
 	"errors"
+	"log"
 	"net/mail"
 	"strings"
 
-	"go.mongodb.org/mongo-driver/v2/bson"
-
 	"med-go/internal/doctor/model"
 	"med-go/internal/doctor/repository"
+	"med-go/internal/platform/id"
 )
 
 var (
@@ -30,12 +30,22 @@ type Repository interface {
 	ExistsByEmail(ctx context.Context, email string) (bool, error)
 }
 
-type Service struct {
-	repo Repository
+type EventPublisher interface {
+	PublishDoctorCreated(ctx context.Context, doctor model.Doctor) error
 }
 
-func NewService(repo Repository) *Service {
-	return &Service{repo: repo}
+type Service struct {
+	repo      Repository
+	publisher EventPublisher
+}
+
+func NewService(repo Repository, publishers ...EventPublisher) *Service {
+	var publisher EventPublisher
+	if len(publishers) > 0 {
+		publisher = publishers[0]
+	}
+
+	return &Service{repo: repo, publisher: publisher}
 }
 
 func (s *Service) CreateDoctor(ctx context.Context, input CreateDoctorInput) (model.Doctor, error) {
@@ -55,8 +65,13 @@ func (s *Service) CreateDoctor(ctx context.Context, input CreateDoctorInput) (mo
 		return model.Doctor{}, ErrDoctorEmailAlreadyUsed
 	}
 
+	doctorID, err := id.New()
+	if err != nil {
+		return model.Doctor{}, err
+	}
+
 	doctor := model.Doctor{
-		ID:             bson.NewObjectID().Hex(),
+		ID:             doctorID,
 		FullName:       fullName,
 		Specialization: specialization,
 		Email:          email,
@@ -68,6 +83,12 @@ func (s *Service) CreateDoctor(ctx context.Context, input CreateDoctorInput) (mo
 		}
 
 		return model.Doctor{}, err
+	}
+
+	if s.publisher != nil {
+		if err := s.publisher.PublishDoctorCreated(ctx, doctor); err != nil {
+			log.Printf("failed to publish doctors.created doctor_id=%s: %v", doctor.ID, err)
+		}
 	}
 
 	return doctor, nil

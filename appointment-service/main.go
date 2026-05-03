@@ -8,7 +8,6 @@ import (
 	"time"
 
 	appointmentapp "med-go/internal/appointment/app"
-	doctorapp "med-go/internal/doctor/app"
 	"med-go/internal/platform/bootstrap"
 )
 
@@ -22,20 +21,13 @@ func main() {
 	startupCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	doctorService, err := doctorapp.New(startupCtx, config.DoctorAddress, config.DoctorDatabaseURL, config.NATSURL, "doctor-service/migrations")
-	if err != nil {
-		log.Fatalf("failed to initialize doctor-service: %v", err)
-	}
-	defer doctorService.Close()
-
-	appointmentService, err := appointmentapp.New(startupCtx, config.AppointmentAddress, config.DoctorServiceTarget, config.AppointmentDatabaseURL, config.NATSURL, "appointment-service/migrations")
+	appointmentService, err := appointmentapp.New(startupCtx, config.AppointmentAddress, config.DoctorServiceTarget, config.DatabaseURL, config.NATSURL, "migrations")
 	if err != nil {
 		log.Fatalf("failed to initialize appointment-service: %v", err)
 	}
 	defer appointmentService.Close()
 
 	if err := bootstrap.RunGRPCServices(ctx,
-		bootstrap.Service{Name: "doctor-service", Address: doctorService.Address, Server: doctorService.Server},
 		bootstrap.Service{Name: "appointment-service", Address: appointmentService.Address, Server: appointmentService.Server},
 	); err != nil {
 		log.Fatalf("server exited with error: %v", err)

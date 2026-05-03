@@ -9,7 +9,6 @@ import (
 
 	appointmentapp "med-go/internal/appointment/app"
 	"med-go/internal/platform/bootstrap"
-	"med-go/internal/platform/mongodb"
 )
 
 func main() {
@@ -19,26 +18,14 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	connectCtx, connectCancel := context.WithTimeout(ctx, 10*time.Second)
-	defer connectCancel()
+	startupCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 
-	mongoClient, err := mongodb.Connect(connectCtx, config.MongoURI)
-	if err != nil {
-		log.Fatalf("failed to connect to MongoDB: %v", err)
-	}
-	defer func() {
-		disconnectCtx, disconnectCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer disconnectCancel()
-
-		if err := mongoClient.Disconnect(disconnectCtx); err != nil {
-			log.Printf("mongo disconnect failed: %v", err)
-		}
-	}()
-
-	appointmentService, err := appointmentapp.New(config.AppointmentAddress, config.DoctorServiceTarget, mongoClient.Database(config.MongoDatabaseName))
+	appointmentService, err := appointmentapp.New(startupCtx, config.AppointmentAddress, config.DoctorServiceTarget, config.DatabaseURL, config.NATSURL, "../../appointment-service/migrations")
 	if err != nil {
 		log.Fatalf("failed to initialize appointment-service: %v", err)
 	}
+	defer appointmentService.Close()
 
 	if err := bootstrap.RunGRPCServices(ctx,
 		bootstrap.Service{Name: "appointment-service", Address: appointmentService.Address, Server: appointmentService.Server},

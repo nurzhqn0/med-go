@@ -14,7 +14,8 @@ import (
 )
 
 type DoctorService struct {
-	client doctorpb.DoctorServiceClient
+	connection *grpc.ClientConn
+	client     doctorpb.DoctorServiceClient
 }
 
 func NewDoctorService(target string) (*DoctorService, error) {
@@ -24,8 +25,13 @@ func NewDoctorService(target string) (*DoctorService, error) {
 	}
 
 	return &DoctorService{
-		client: doctorpb.NewDoctorServiceClient(connection),
+		connection: connection,
+		client:     doctorpb.NewDoctorServiceClient(connection),
 	}, nil
+}
+
+func (c *DoctorService) Close() error {
+	return c.connection.Close()
 }
 
 func (c *DoctorService) Exists(ctx context.Context, id string) (bool, error) {
