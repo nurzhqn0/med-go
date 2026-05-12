@@ -10,6 +10,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/med-go .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/doctor-service ./doctor-service
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/appointment-service ./appointment-service
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/notification-service ./notification-service
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/mock-gateway ./mock-gateway
 
 FROM alpine:3.21
 
@@ -21,9 +22,10 @@ COPY --from=builder /out/med-go /app/bin/med-go
 COPY --from=builder /out/doctor-service /app/bin/doctor-service
 COPY --from=builder /out/appointment-service /app/bin/appointment-service
 COPY --from=builder /out/notification-service /app/bin/notification-service
+COPY --from=builder /out/mock-gateway /app/bin/mock-gateway
 COPY doctor-service/migrations /app/doctor-service/migrations
 COPY appointment-service/migrations /app/appointment-service/migrations
 
-EXPOSE 8081 8082
+EXPOSE 8080 8081 8082
 
 CMD ["/app/bin/med-go"]

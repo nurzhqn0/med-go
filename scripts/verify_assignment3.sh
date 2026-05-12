@@ -15,6 +15,9 @@ echo "Checking DDL exists only in migration files..."
 if rg 'CREATE TABLE|ALTER TABLE|DROP TABLE' \
   --glob '!doctor-service/migrations/*.sql' \
   --glob '!appointment-service/migrations/*.sql' \
+  --glob '!ASSIGNMENT3_STUDY_GUIDE.md' \
+  --glob '!DEFENSE.md' \
+  --glob '!README.md' \
   --glob '!scripts/verify_assignment3.sh' \
   .; then
   echo "DDL found outside migration files"

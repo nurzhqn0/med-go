@@ -3,16 +3,21 @@ package app
 import (
 	"context"
 	"log"
+	"time"
 
+	doctorcache "med-go/internal/doctor/cache"
 	doctorevent "med-go/internal/doctor/event"
 	doctorpb "med-go/internal/doctor/proto"
 	"med-go/internal/doctor/repository"
 	grpctransport "med-go/internal/doctor/transport/grpc"
 	"med-go/internal/doctor/usecase"
+	"med-go/internal/platform/middleware"
 	"med-go/internal/platform/migrations"
 	"med-go/internal/platform/postgres"
+	platformredis "med-go/internal/platform/redis"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 type App struct {
@@ -21,7 +26,7 @@ type App struct {
 	closers []func()
 }
 
-func New(ctx context.Context, addr, databaseURL, natsURL, migrationsPath string) (*App, error) {
+func New(ctx context.Context, addr, databaseURL, natsURL, migrationsPath, redisURL string, cacheTTL time.Duration, rateLimitRPM int) (*App, error) {
 	if err := migrations.Up(databaseURL, migrationsPath); err != nil {
 		return nil, err
 	}
@@ -49,8 +54,21 @@ func New(ctx context.Context, addr, databaseURL, natsURL, migrationsPath string)
 	}
 
 	service := usecase.NewService(repo, eventPublisher)
-	server := grpc.NewServer()
+	redisClient, err := platformredis.Connect(ctx, redisURL)
+	if err != nil {
+		log.Printf("Redis unavailable for doctor-service, cache and rate limiting disabled: %v", err)
+	} else {
+		service.SetCache(doctorcache.NewRedisCache(redisClient, cacheTTL))
+		closers = append(closers, func() {
+			if err := redisClient.Close(); err != nil {
+				log.Printf("doctor-service Redis close failed: %v", err)
+			}
+		})
+	}
+
+	server := grpc.NewServer(grpc.UnaryInterceptor(middleware.NewRateLimiter(redisClient, "doctor-service", rateLimitRPM).UnaryServerInterceptor()))
 	doctorpb.RegisterDoctorServiceServer(server, grpctransport.NewServer(service))
+	reflection.Register(server)
 
 	return &App{
 		Server:  server,

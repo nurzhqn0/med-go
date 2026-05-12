@@ -1,0 +1,368 @@
+{
+  "info": {
+    "name": "AP2 Assignment 3 - Medical Scheduling gRPC Reference",
+    "_postman_id": "6b2f8595-9f3a-4eb8-99c2-1c99f0d1a303",
+    "description": "Importable reference collection only. Do not press Send on items. Use New -> gRPC Request in Postman to invoke this project. Postman does not import executable gRPC requests as REST collection JSON.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "doctor_host",
+      "value": "localhost:8081"
+    },
+    {
+      "key": "appointment_host",
+      "value": "localhost:8082"
+    },
+    {
+      "key": "doctor_id",
+      "value": "PUT_DOCTOR_ID_HERE"
+    },
+    {
+      "key": "appointment_id",
+      "value": "PUT_APPOINTMENT_ID_HERE"
+    }
+  ],
+  "item": [
+    {
+      "name": "Doctor Service gRPC",
+      "item": [
+        {
+          "name": "REFERENCE ONLY - CreateDoctor",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://learning.postman.com/docs/sending-requests/grpc/grpc-request-interface/",
+              "protocol": "https",
+              "host": [
+                "learning",
+                "postman",
+                "com"
+              ],
+              "path": [
+                "docs",
+                "sending-requests",
+                "grpc",
+                "grpc-request-interface",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Dr. Aisha Seitkali\",\n  \"specialization\": \"Cardiology\",\n  \"email\": \"a.seitkali@clinic.kz\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "REFERENCE ONLY - DO NOT CLICK SEND ON THIS COLLECTION ITEM.\n\nPostman imported collections are HTTP-mode. This project is gRPC-only.\nTo execute: click New -> gRPC Request, enter the server URL and method below, paste the message JSON, then click Invoke.\n\nIMPORTANT: This is an importable Postman reference item. Postman does not import executable gRPC requests from collection JSON like REST.\n\nTo run it: New -> gRPC Request -> server URL: localhost:8081 -> plaintext/no TLS -> select method: doctor.DoctorService/CreateDoctor.\n\nProto file: internal/doctor/proto/doctor.proto\n\nMessage JSON:\n{\n  \"full_name\": \"Dr. Aisha Seitkali\",\n  \"specialization\": \"Cardiology\",\n  \"email\": \"a.seitkali@clinic.kz\"\n}\n\nExpected event: doctors.created"
+          }
+        },
+        {
+          "name": "REFERENCE ONLY - GetDoctor",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://learning.postman.com/docs/sending-requests/grpc/grpc-request-interface/",
+              "protocol": "https",
+              "host": [
+                "learning",
+                "postman",
+                "com"
+              ],
+              "path": [
+                "docs",
+                "sending-requests",
+                "grpc",
+                "grpc-request-interface",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{doctor_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "REFERENCE ONLY - DO NOT CLICK SEND ON THIS COLLECTION ITEM.\n\nPostman imported collections are HTTP-mode. This project is gRPC-only.\nTo execute: click New -> gRPC Request, enter the server URL and method below, paste the message JSON, then click Invoke.\n\nIMPORTANT: This is an importable Postman reference item. Postman does not import executable gRPC requests from collection JSON like REST.\n\nTo run it: New -> gRPC Request -> server URL: localhost:8081 -> plaintext/no TLS -> select method: doctor.DoctorService/GetDoctor.\n\nProto file: internal/doctor/proto/doctor.proto\n\nMessage JSON:\n{\n  \"id\": \"{{doctor_id}}\"\n}\n\nExpected: doctor response or NotFound."
+          }
+        },
+        {
+          "name": "REFERENCE ONLY - ListDoctors",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://learning.postman.com/docs/sending-requests/grpc/grpc-request-interface/",
+              "protocol": "https",
+              "host": [
+                "learning",
+                "postman",
+                "com"
+              ],
+              "path": [
+                "docs",
+                "sending-requests",
+                "grpc",
+                "grpc-request-interface",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "REFERENCE ONLY - DO NOT CLICK SEND ON THIS COLLECTION ITEM.\n\nPostman imported collections are HTTP-mode. This project is gRPC-only.\nTo execute: click New -> gRPC Request, enter the server URL and method below, paste the message JSON, then click Invoke.\n\nIMPORTANT: This is an importable Postman reference item. Postman does not import executable gRPC requests from collection JSON like REST.\n\nTo run it: New -> gRPC Request -> server URL: localhost:8081 -> plaintext/no TLS -> select method: doctor.DoctorService/ListDoctors.\n\nProto file: internal/doctor/proto/doctor.proto\n\nMessage JSON:\n{}\n\nExpected: list of doctors."
+          }
+        },
+        {
+          "name": "REFERENCE ONLY - CreateDoctor Duplicate Email",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://learning.postman.com/docs/sending-requests/grpc/grpc-request-interface/",
+              "protocol": "https",
+              "host": [
+                "learning",
+                "postman",
+                "com"
+              ],
+              "path": [
+                "docs",
+                "sending-requests",
+                "grpc",
+                "grpc-request-interface",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Dr. Duplicate\",\n  \"specialization\": \"Cardiology\",\n  \"email\": \"a.seitkali@clinic.kz\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "REFERENCE ONLY - DO NOT CLICK SEND ON THIS COLLECTION ITEM.\n\nPostman imported collections are HTTP-mode. This project is gRPC-only.\nTo execute: click New -> gRPC Request, enter the server URL and method below, paste the message JSON, then click Invoke.\n\nIMPORTANT: This is an importable Postman reference item. Postman does not import executable gRPC requests from collection JSON like REST.\n\nTo run it: New -> gRPC Request -> server URL: localhost:8081 -> plaintext/no TLS -> select method: doctor.DoctorService/CreateDoctor.\n\nProto file: internal/doctor/proto/doctor.proto\n\nMessage JSON:\n{\n  \"full_name\": \"Dr. Duplicate\",\n  \"specialization\": \"Cardiology\",\n  \"email\": \"a.seitkali@clinic.kz\"\n}\n\nExpected gRPC code: AlreadyExists."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Appointment Service gRPC",
+      "item": [
+        {
+          "name": "REFERENCE ONLY - CreateAppointment",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://learning.postman.com/docs/sending-requests/grpc/grpc-request-interface/",
+              "protocol": "https",
+              "host": [
+                "learning",
+                "postman",
+                "com"
+              ],
+              "path": [
+                "docs",
+                "sending-requests",
+                "grpc",
+                "grpc-request-interface",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Initial cardiac consultation\",\n  \"description\": \"Patient referred for palpitations and shortness of breath\",\n  \"doctor_id\": \"{{doctor_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "REFERENCE ONLY - DO NOT CLICK SEND ON THIS COLLECTION ITEM.\n\nPostman imported collections are HTTP-mode. This project is gRPC-only.\nTo execute: click New -> gRPC Request, enter the server URL and method below, paste the message JSON, then click Invoke.\n\nIMPORTANT: This is an importable Postman reference item. Postman does not import executable gRPC requests from collection JSON like REST.\n\nTo run it: New -> gRPC Request -> server URL: localhost:8082 -> plaintext/no TLS -> select method: appointment.AppointmentService/CreateAppointment.\n\nProto file: internal/appointment/proto/appointment.proto\n\nMessage JSON:\n{\n  \"title\": \"Initial cardiac consultation\",\n  \"description\": \"Patient referred for palpitations and shortness of breath\",\n  \"doctor_id\": \"{{doctor_id}}\"\n}\n\nExpected event: appointments.created"
+          }
+        },
+        {
+          "name": "REFERENCE ONLY - GetAppointment",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://learning.postman.com/docs/sending-requests/grpc/grpc-request-interface/",
+              "protocol": "https",
+              "host": [
+                "learning",
+                "postman",
+                "com"
+              ],
+              "path": [
+                "docs",
+                "sending-requests",
+                "grpc",
+                "grpc-request-interface",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{appointment_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "REFERENCE ONLY - DO NOT CLICK SEND ON THIS COLLECTION ITEM.\n\nPostman imported collections are HTTP-mode. This project is gRPC-only.\nTo execute: click New -> gRPC Request, enter the server URL and method below, paste the message JSON, then click Invoke.\n\nIMPORTANT: This is an importable Postman reference item. Postman does not import executable gRPC requests from collection JSON like REST.\n\nTo run it: New -> gRPC Request -> server URL: localhost:8082 -> plaintext/no TLS -> select method: appointment.AppointmentService/GetAppointment.\n\nProto file: internal/appointment/proto/appointment.proto\n\nMessage JSON:\n{\n  \"id\": \"{{appointment_id}}\"\n}\n\nExpected: appointment response or NotFound."
+          }
+        },
+        {
+          "name": "REFERENCE ONLY - ListAppointments",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://learning.postman.com/docs/sending-requests/grpc/grpc-request-interface/",
+              "protocol": "https",
+              "host": [
+                "learning",
+                "postman",
+                "com"
+              ],
+              "path": [
+                "docs",
+                "sending-requests",
+                "grpc",
+                "grpc-request-interface",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "REFERENCE ONLY - DO NOT CLICK SEND ON THIS COLLECTION ITEM.\n\nPostman imported collections are HTTP-mode. This project is gRPC-only.\nTo execute: click New -> gRPC Request, enter the server URL and method below, paste the message JSON, then click Invoke.\n\nIMPORTANT: This is an importable Postman reference item. Postman does not import executable gRPC requests from collection JSON like REST.\n\nTo run it: New -> gRPC Request -> server URL: localhost:8082 -> plaintext/no TLS -> select method: appointment.AppointmentService/ListAppointments.\n\nProto file: internal/appointment/proto/appointment.proto\n\nMessage JSON:\n{}\n\nExpected: list of appointments."
+          }
+        },
+        {
+          "name": "REFERENCE ONLY - UpdateAppointmentStatus",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://learning.postman.com/docs/sending-requests/grpc/grpc-request-interface/",
+              "protocol": "https",
+              "host": [
+                "learning",
+                "postman",
+                "com"
+              ],
+              "path": [
+                "docs",
+                "sending-requests",
+                "grpc",
+                "grpc-request-interface",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{appointment_id}}\",\n  \"status\": \"in_progress\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "REFERENCE ONLY - DO NOT CLICK SEND ON THIS COLLECTION ITEM.\n\nPostman imported collections are HTTP-mode. This project is gRPC-only.\nTo execute: click New -> gRPC Request, enter the server URL and method below, paste the message JSON, then click Invoke.\n\nIMPORTANT: This is an importable Postman reference item. Postman does not import executable gRPC requests from collection JSON like REST.\n\nTo run it: New -> gRPC Request -> server URL: localhost:8082 -> plaintext/no TLS -> select method: appointment.AppointmentService/UpdateAppointmentStatus.\n\nProto file: internal/appointment/proto/appointment.proto\n\nMessage JSON:\n{\n  \"id\": \"{{appointment_id}}\",\n  \"status\": \"in_progress\"\n}\n\nExpected event: appointments.status_updated"
+          }
+        },
+        {
+          "name": "REFERENCE ONLY - UpdateAppointmentStatus Invalid",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://learning.postman.com/docs/sending-requests/grpc/grpc-request-interface/",
+              "protocol": "https",
+              "host": [
+                "learning",
+                "postman",
+                "com"
+              ],
+              "path": [
+                "docs",
+                "sending-requests",
+                "grpc",
+                "grpc-request-interface",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{appointment_id}}\",\n  \"status\": \"invalid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "REFERENCE ONLY - DO NOT CLICK SEND ON THIS COLLECTION ITEM.\n\nPostman imported collections are HTTP-mode. This project is gRPC-only.\nTo execute: click New -> gRPC Request, enter the server URL and method below, paste the message JSON, then click Invoke.\n\nIMPORTANT: This is an importable Postman reference item. Postman does not import executable gRPC requests from collection JSON like REST.\n\nTo run it: New -> gRPC Request -> server URL: localhost:8082 -> plaintext/no TLS -> select method: appointment.AppointmentService/UpdateAppointmentStatus.\n\nProto file: internal/appointment/proto/appointment.proto\n\nMessage JSON:\n{\n  \"id\": \"{{appointment_id}}\",\n  \"status\": \"invalid\"\n}\n\nExpected gRPC code: InvalidArgument."
+          }
+        }
+      ]
+    },
+    {
+      "name": "REFERENCE ONLY - How To Use In Postman",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://learning.postman.com/docs/sending-requests/grpc/grpc-request-interface/",
+          "protocol": "https",
+          "host": [
+            "learning",
+            "postman",
+            "com"
+          ],
+          "path": [
+            "docs",
+            "sending-requests",
+            "grpc",
+            "grpc-request-interface",
+            ""
+          ]
+        },
+        "description": "REFERENCE ONLY - DO NOT CLICK SEND ON THIS COLLECTION ITEM.\n\nPostman imported collections are HTTP-mode. This project is gRPC-only.\nTo execute: click New -> gRPC Request, enter the server URL and method below, paste the message JSON, then click Invoke.\n\nPostman cannot run these as normal REST requests. Use New -> gRPC Request. Server URLs: localhost:8081 and localhost:8082. Reflection is enabled, or import the proto files manually.",
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

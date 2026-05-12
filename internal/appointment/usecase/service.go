@@ -43,10 +43,19 @@ type EventPublisher interface {
 	PublishAppointmentStatusUpdated(ctx context.Context, appointment model.Appointment, oldStatus model.Status) error
 }
 
+type CacheRepository interface {
+	GetAppointment(ctx context.Context, id string) (model.Appointment, bool, error)
+	SetAppointment(ctx context.Context, appointment model.Appointment) error
+	GetAppointments(ctx context.Context) ([]model.Appointment, bool, error)
+	SetAppointments(ctx context.Context, appointments []model.Appointment) error
+	Delete(ctx context.Context, keys ...string) error
+}
+
 type Service struct {
 	repo         Repository
 	doctorLookup DoctorLookup
 	publisher    EventPublisher
+	cache        CacheRepository
 }
 
 func NewService(repo Repository, doctorLookup DoctorLookup, publishers ...EventPublisher) *Service {
@@ -60,6 +69,10 @@ func NewService(repo Repository, doctorLookup DoctorLookup, publishers ...EventP
 		doctorLookup: doctorLookup,
 		publisher:    publisher,
 	}
+}
+
+func (s *Service) SetCache(cache CacheRepository) {
+	s.cache = cache
 }
 
 func (s *Service) CreateAppointment(ctx context.Context, input CreateAppointmentInput) (model.Appointment, error) {
@@ -101,6 +114,12 @@ func (s *Service) CreateAppointment(ctx context.Context, input CreateAppointment
 		return model.Appointment{}, err
 	}
 
+	if s.cache != nil {
+		if err := s.cache.Delete(ctx, "appointments:list"); err != nil {
+			log.Printf("failed to invalidate appointments:list after create appointment_id=%s: %v", appointment.ID, err)
+		}
+	}
+
 	if s.publisher != nil {
 		if err := s.publisher.PublishAppointmentCreated(ctx, appointment); err != nil {
 			log.Printf("failed to publish appointments.created appointment_id=%s: %v", appointment.ID, err)
@@ -111,11 +130,42 @@ func (s *Service) CreateAppointment(ctx context.Context, input CreateAppointment
 }
 
 func (s *Service) ListAppointments(ctx context.Context) ([]model.Appointment, error) {
-	return s.repo.List(ctx)
+	if s.cache != nil {
+		appointments, ok, err := s.cache.GetAppointments(ctx)
+		if err != nil {
+			log.Printf("appointment list cache read failed: %v", err)
+		}
+		if ok {
+			return appointments, nil
+		}
+	}
+
+	appointments, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.cache != nil {
+		if err := s.cache.SetAppointments(ctx, appointments); err != nil {
+			log.Printf("appointment list cache write failed: %v", err)
+		}
+	}
+
+	return appointments, nil
 }
 
 func (s *Service) GetAppointment(ctx context.Context, id string) (model.Appointment, error) {
 	appointmentID := strings.TrimSpace(id)
+	if s.cache != nil {
+		appointment, ok, err := s.cache.GetAppointment(ctx, appointmentID)
+		if err != nil {
+			log.Printf("appointment cache read failed appointment_id=%s: %v", appointmentID, err)
+		}
+		if ok {
+			return appointment, nil
+		}
+	}
+
 	appointment, err := s.repo.GetByID(ctx, appointmentID)
 	if err != nil {
 		if errors.Is(err, repository.ErrAppointmentNotFound) {
@@ -123,6 +173,12 @@ func (s *Service) GetAppointment(ctx context.Context, id string) (model.Appointm
 		}
 
 		return model.Appointment{}, err
+	}
+
+	if s.cache != nil {
+		if err := s.cache.SetAppointment(ctx, appointment); err != nil {
+			log.Printf("appointment cache write failed appointment_id=%s: %v", appointment.ID, err)
+		}
 	}
 
 	return appointment, nil
@@ -155,6 +211,15 @@ func (s *Service) UpdateStatus(ctx context.Context, id string, rawStatus string)
 		}
 
 		return model.Appointment{}, err
+	}
+
+	if s.cache != nil {
+		if err := s.cache.SetAppointment(ctx, updatedAppointment); err != nil {
+			log.Printf("appointment cache write failed appointment_id=%s: %v", updatedAppointment.ID, err)
+		}
+		if err := s.cache.Delete(ctx, "appointments:list"); err != nil {
+			log.Printf("failed to invalidate appointments:list after status update appointment_id=%s: %v", updatedAppointment.ID, err)
+		}
 	}
 
 	if s.publisher != nil {

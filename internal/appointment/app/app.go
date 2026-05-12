@@ -3,17 +3,22 @@ package app
 import (
 	"context"
 	"log"
+	"time"
 
+	appointmentcache "med-go/internal/appointment/cache"
 	"med-go/internal/appointment/client"
 	appointmentevent "med-go/internal/appointment/event"
 	appointmentpb "med-go/internal/appointment/proto"
 	"med-go/internal/appointment/repository"
 	grpctransport "med-go/internal/appointment/transport/grpc"
 	"med-go/internal/appointment/usecase"
+	"med-go/internal/platform/middleware"
 	"med-go/internal/platform/migrations"
 	"med-go/internal/platform/postgres"
+	platformredis "med-go/internal/platform/redis"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 type App struct {
@@ -22,7 +27,7 @@ type App struct {
 	closers []func()
 }
 
-func New(ctx context.Context, addr, doctorServiceAddress, databaseURL, natsURL, migrationsPath string) (*App, error) {
+func New(ctx context.Context, addr, doctorServiceAddress, databaseURL, natsURL, migrationsPath, redisURL string, cacheTTL time.Duration, rateLimitRPM int) (*App, error) {
 	if err := migrations.Up(databaseURL, migrationsPath); err != nil {
 		return nil, err
 	}
@@ -63,8 +68,21 @@ func New(ctx context.Context, addr, doctorServiceAddress, databaseURL, natsURL, 
 	}
 
 	service := usecase.NewService(repo, doctorClient, eventPublisher)
-	server := grpc.NewServer()
+	redisClient, err := platformredis.Connect(ctx, redisURL)
+	if err != nil {
+		log.Printf("Redis unavailable for appointment-service, cache and rate limiting disabled: %v", err)
+	} else {
+		service.SetCache(appointmentcache.NewRedisCache(redisClient, cacheTTL))
+		closers = append(closers, func() {
+			if err := redisClient.Close(); err != nil {
+				log.Printf("appointment-service Redis close failed: %v", err)
+			}
+		})
+	}
+
+	server := grpc.NewServer(grpc.UnaryInterceptor(middleware.NewRateLimiter(redisClient, "appointment-service", rateLimitRPM).UnaryServerInterceptor()))
 	appointmentpb.RegisterAppointmentServiceServer(server, grpctransport.NewServer(service))
+	reflection.Register(server)
 
 	return &App{
 		Server:  server,

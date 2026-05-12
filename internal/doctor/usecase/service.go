@@ -34,9 +34,18 @@ type EventPublisher interface {
 	PublishDoctorCreated(ctx context.Context, doctor model.Doctor) error
 }
 
+type CacheRepository interface {
+	GetDoctor(ctx context.Context, id string) (model.Doctor, bool, error)
+	SetDoctor(ctx context.Context, doctor model.Doctor) error
+	GetDoctors(ctx context.Context) ([]model.Doctor, bool, error)
+	SetDoctors(ctx context.Context, doctors []model.Doctor) error
+	Delete(ctx context.Context, keys ...string) error
+}
+
 type Service struct {
 	repo      Repository
 	publisher EventPublisher
+	cache     CacheRepository
 }
 
 func NewService(repo Repository, publishers ...EventPublisher) *Service {
@@ -46,6 +55,10 @@ func NewService(repo Repository, publishers ...EventPublisher) *Service {
 	}
 
 	return &Service{repo: repo, publisher: publisher}
+}
+
+func (s *Service) SetCache(cache CacheRepository) {
+	s.cache = cache
 }
 
 func (s *Service) CreateDoctor(ctx context.Context, input CreateDoctorInput) (model.Doctor, error) {
@@ -85,6 +98,12 @@ func (s *Service) CreateDoctor(ctx context.Context, input CreateDoctorInput) (mo
 		return model.Doctor{}, err
 	}
 
+	if s.cache != nil {
+		if err := s.cache.Delete(ctx, "doctors:list"); err != nil {
+			log.Printf("failed to invalidate doctors:list after create doctor_id=%s: %v", doctor.ID, err)
+		}
+	}
+
 	if s.publisher != nil {
 		if err := s.publisher.PublishDoctorCreated(ctx, doctor); err != nil {
 			log.Printf("failed to publish doctors.created doctor_id=%s: %v", doctor.ID, err)
@@ -95,17 +114,55 @@ func (s *Service) CreateDoctor(ctx context.Context, input CreateDoctorInput) (mo
 }
 
 func (s *Service) ListDoctors(ctx context.Context) ([]model.Doctor, error) {
-	return s.repo.List(ctx)
+	if s.cache != nil {
+		doctors, ok, err := s.cache.GetDoctors(ctx)
+		if err != nil {
+			log.Printf("doctor list cache read failed: %v", err)
+		}
+		if ok {
+			return doctors, nil
+		}
+	}
+
+	doctors, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.cache != nil {
+		if err := s.cache.SetDoctors(ctx, doctors); err != nil {
+			log.Printf("doctor list cache write failed: %v", err)
+		}
+	}
+
+	return doctors, nil
 }
 
 func (s *Service) GetDoctor(ctx context.Context, id string) (model.Doctor, error) {
-	doctor, err := s.repo.GetByID(ctx, strings.TrimSpace(id))
+	doctorID := strings.TrimSpace(id)
+	if s.cache != nil {
+		doctor, ok, err := s.cache.GetDoctor(ctx, doctorID)
+		if err != nil {
+			log.Printf("doctor cache read failed doctor_id=%s: %v", doctorID, err)
+		}
+		if ok {
+			return doctor, nil
+		}
+	}
+
+	doctor, err := s.repo.GetByID(ctx, doctorID)
 	if err != nil {
 		if errors.Is(err, repository.ErrDoctorNotFound) {
 			return model.Doctor{}, repository.ErrDoctorNotFound
 		}
 
 		return model.Doctor{}, err
+	}
+
+	if s.cache != nil {
+		if err := s.cache.SetDoctor(ctx, doctor); err != nil {
+			log.Printf("doctor cache write failed doctor_id=%s: %v", doctor.ID, err)
+		}
 	}
 
 	return doctor, nil

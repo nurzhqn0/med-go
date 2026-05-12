@@ -58,12 +58,14 @@ func (p *Publisher) PublishAppointmentStatusUpdated(_ context.Context, appointme
 		EventType  string `json:"event_type"`
 		OccurredAt string `json:"occurred_at"`
 		ID         string `json:"id"`
+		DoctorID   string `json:"doctor_id"`
 		OldStatus  string `json:"old_status"`
 		NewStatus  string `json:"new_status"`
 	}{
 		EventType:  AppointmentsStatusUpdatedSubject,
 		OccurredAt: time.Now().UTC().Format(time.RFC3339),
 		ID:         appointment.ID,
+		DoctorID:   appointment.DoctorID,
 		OldStatus:  string(oldStatus),
 		NewStatus:  string(appointment.Status),
 	}

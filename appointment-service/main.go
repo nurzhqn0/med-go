@@ -21,7 +21,7 @@ func main() {
 	startupCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	appointmentService, err := appointmentapp.New(startupCtx, config.AppointmentAddress, config.DoctorServiceTarget, config.DatabaseURL, config.NATSURL, "migrations")
+	appointmentService, err := appointmentapp.New(startupCtx, config.AppointmentAddress, config.DoctorServiceTarget, config.DatabaseURL, config.NATSURL, "migrations", config.RedisURL, config.CacheTTL, config.RateLimitRPM)
 	if err != nil {
 		log.Fatalf("failed to initialize appointment-service: %v", err)
 	}

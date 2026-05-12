@@ -21,7 +21,7 @@ func main() {
 	startupCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	doctorService, err := doctorapp.New(startupCtx, config.DoctorAddress, config.DatabaseURL, config.NATSURL, "migrations")
+	doctorService, err := doctorapp.New(startupCtx, config.DoctorAddress, config.DatabaseURL, config.NATSURL, "migrations", config.RedisURL, config.CacheTTL, config.RateLimitRPM)
 	if err != nil {
 		log.Fatalf("failed to initialize doctor-service: %v", err)
 	}

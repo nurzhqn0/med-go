@@ -32,6 +32,29 @@ services:
       retries: 10
       start_period: 5s
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  mock-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["/app/bin/mock-gateway"]
+    environment:
+      GATEWAY_PORT: 8080
+    ports:
+      - "127.0.0.1:${GATEWAY_PUBLISHED_PORT:-8080}:8080"
+
   doctor-service:
     build:
       context: .
@@ -42,11 +65,16 @@ services:
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/doctor_service?sslmode=disable
       NATS_URL: nats://nats:4222
+      REDIS_URL: redis://redis:6379
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
+      RATE_LIMIT_RPM: ${RATE_LIMIT_RPM:-100}
       DOCTOR_SERVICE_ADDR: :8081
     depends_on:
       postgres:
         condition: service_healthy
       nats:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "127.0.0.1:${DOCTOR_PUBLISHED_PORT:-8081}:8081"
@@ -61,12 +89,17 @@ services:
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/appointment_service?sslmode=disable
       NATS_URL: nats://nats:4222
+      REDIS_URL: redis://redis:6379
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
+      RATE_LIMIT_RPM: ${RATE_LIMIT_RPM:-100}
       APPOINTMENT_SERVICE_ADDR: :8082
       DOCTOR_SERVICE_GRPC_TARGET: doctor-service:8081
     depends_on:
       postgres:
         condition: service_healthy
       nats:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       doctor-service:
         condition: service_started
@@ -81,9 +114,18 @@ services:
     command: ["/app/bin/notification-service"]
     environment:
       NATS_URL: nats://nats:4222
+      REDIS_URL: redis://redis:6379
+      GATEWAY_URL: http://mock-gateway:8080
+      WORKER_POOL_SIZE: ${WORKER_POOL_SIZE:-3}
+      JOB_MAX_RETRIES: ${JOB_MAX_RETRIES:-3}
+      JOB_BACKOFF_SECONDS: ${JOB_BACKOFF_SECONDS:-1,2,4}
     depends_on:
       nats:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      mock-gateway:
+        condition: service_started
 
 volumes:
   postgres_data:

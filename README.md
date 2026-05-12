@@ -1,221 +1,212 @@
-# Medical Scheduling Platform - Assignment 3
+# Medical Scheduling Platform - Assignment 4
 
-This version extends the Assignment 2 gRPC-only Medical Scheduling Platform with PostgreSQL persistence, versioned golang-migrate migrations, NATS Core events, and a standalone Notification Service.
+This version extends the Assignment 3 Medical Scheduling Platform with Redis caching, Redis-backed gRPC rate limiting, a Notification Service background job queue, and a simulated external notification gateway.
 
-The proto contracts, generated stubs, domain models, business rules, and gRPC status mapping are intentionally unchanged from Assignment 2. The infrastructure layer changed from MongoDB/in-memory storage to PostgreSQL repositories and asynchronous event publishing.
+Unchanged from Assignment 3: gRPC contracts, generated stubs, domain models, PostgreSQL schemas/migrations, NATS subjects, and the service-directory startup flow.
 
 ## Architecture
 
-![alt text](/docs/image.png)
+```mermaid
+flowchart LR
+  Client["grpcurl / gRPC client"]
+  Doctor["Doctor Service :8081"]
+  Appointment["Appointment Service :8082"]
+  Notify["Notification Service"]
+  Gateway["Mock Notification Gateway :8080"]
+  DoctorDB[("PostgreSQL doctor_service")]
+  AppointmentDB[("PostgreSQL appointment_service")]
+  Redis[("Redis")]
+  NATS[("NATS Core")]
 
-## Broker Choice
-
-This project uses **NATS Core**.
-
-Reason: Assignment 3 allows best-effort, fire-and-forget event publishing. NATS Core is simpler to run locally, has minimal setup, and is enough for the required Notification Service demo.
-
-Trade-off: NATS Core does not persist messages. If a source service commits to PostgreSQL and then crashes before publishing, the event is lost. In production, this would be addressed with the Outbox pattern, NATS JetStream, or RabbitMQ with durable queues and publisher confirms.
+  Client -->|"gRPC"| Doctor
+  Client -->|"gRPC"| Appointment
+  Appointment -->|"gRPC doctor validation"| Doctor
+  Doctor -->|"SQL"| DoctorDB
+  Appointment -->|"SQL"| AppointmentDB
+  Doctor -->|"cache + rate limiter"| Redis
+  Appointment -->|"cache + rate limiter"| Redis
+  Notify -->|"idempotency keys"| Redis
+  Doctor -->|"doctors.created"| NATS
+  Appointment -->|"appointments.created / status_updated"| NATS
+  NATS -->|"subscribe"| Notify
+  Notify -->|"POST /notify jobs"| Gateway
+```
 
 ## Services
 
-- `doctor-service`: owns doctor profiles and publishes `doctors.created`.
-- `appointment-service`: owns appointments, validates doctors through Doctor Service gRPC, and publishes appointment events.
-- `notification-service`: subscribes to all events and prints one structured JSON log line per message.
+- `doctor-service`: owns doctors, caches `GetDoctor` and `ListDoctors`, publishes `doctors.created`.
+- `appointment-service`: owns appointments, validates doctors through gRPC, caches appointment reads, publishes appointment events.
+- `notification-service`: subscribes to NATS, logs every event, enqueues completion jobs for `appointments.status_updated` where `new_status = "done"`.
+- `mock-gateway`: exposes `POST /notify`, simulates idempotency and random transient HTTP 503 failures.
 
-Notification Service does not expose HTTP/gRPC, does not call other services, and does not use a database.
+## Cache Strategy
 
-## Environment Variables
+| Operation | Strategy | Redis key | Invalidation |
+| --- | --- | --- | --- |
+| `GetDoctor` | Cache-aside | `doctor:<id>` | TTL |
+| `ListDoctors` | Cache-aside | `doctors:list` | deleted after `CreateDoctor` |
+| `GetAppointment` | Cache-aside | `appointment:<id>` | TTL or refreshed after status update |
+| `ListAppointments` | Cache-aside | `appointments:list` | deleted after create/status update |
+| `CreateDoctor` | write-through invalidation | `doctors:list` | delete after DB write succeeds |
+| `CreateAppointment` | write-around invalidation | `appointments:list` | delete after DB write succeeds |
+| `UpdateAppointmentStatus` | write-through update/invalidation | `appointment:<id>`, `appointments:list` | set updated item, delete list |
 
-Doctor Service:
+Cache misses and Redis errors never fail RPCs; the services fall through to PostgreSQL. Cache write/delete failures are logged and the gRPC response still returns. TTL is `CACHE_TTL_SECONDS`, default `60`.
 
-```bash
-DATABASE_URL=postgres://postgres:postgres@localhost:5433/doctor_service?sslmode=disable
-NATS_URL=nats://localhost:4222
-DOCTOR_SERVICE_ADDR=:8081
+The stale-read window is limited by TTL and explicit invalidation. List reads may be stale until the write invalidation happens; if Redis is unavailable, all reads use PostgreSQL directly.
+
+## Rate Limiting
+
+Doctor and Appointment services use a Redis-backed sliding-window counter implemented as a `UnaryServerInterceptor`. Keys use `rate:<service>:<client_ip>`.
+
+The interceptor stores timestamps in a Redis sorted set, removes entries older than 60 seconds, and allows up to `RATE_LIMIT_RPM` requests per client IP. Default: `100`.
+
+When exceeded, the RPC returns `codes.ResourceExhausted` with a retry-after value. If Redis fails at runtime, the limiter logs the error and fails open so the service remains available.
+
+Central Redis counters avoid two horizontal-scaling problems: per-instance counters can be bypassed by load balancing, and instance restarts reset local counters. Redis gives all instances one shared request window.
+
+## Job Queue
+
+Notification Service has separate packages for subscriber, logger, and job queue. The subscriber logs each event first, then passes done-status events to the queue.
+
+Each job includes:
+
+- idempotency key: SHA-256 hex of `event_type + id + occurred_at`
+- appointment id, doctor id, original event timestamp
+- channel: `email`
+- recipient: `patient@clinic.kz`
+- message: `Your appointment <id> with doctor <doctor_id> is complete.`
+
+The queue uses a buffered Go channel sized at `WORKER_POOL_SIZE * 10` and a worker pool sized by `WORKER_POOL_SIZE` (default `3`). If the channel is full, the job is dead-lettered and the idempotency claim is released.
+
+Idempotency keys are stored in Redis as `notification:job:<sha>`. `SETNX processing` claims a job, success stores `done` for 24 hours, and duplicate `done` events are dropped without a second gateway call.
+
+Gateway failures with HTTP 503 or network errors retry with exponential backoff. Defaults are `JOB_MAX_RETRIES=3` and `JOB_BACKOFF_SECONDS=1,2,4`. After the configured attempts fail, the worker writes a JSON `dead_letter` line to stderr and deletes the processing key so a manual replay can retry.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Logged: NATS event received
+  Logged --> Ignored: new_status != done
+  Logged --> Duplicate: Redis key == done
+  Logged --> Enqueued: SETNX processing
+  Enqueued --> Processing: worker receives job
+  Processing --> Success: POST /notify HTTP 200
+  Processing --> Retry: HTTP 503 or network error
+  Retry --> Processing: backoff expires
+  Retry --> DeadLetter: attempts exhausted
+  Success --> [*]: Redis key = done for 24h
+  Duplicate --> [*]
+  DeadLetter --> [*]
 ```
 
-Appointment Service:
+## Infrastructure
 
-```bash
-DATABASE_URL=postgres://postgres:postgres@localhost:5433/appointment_service?sslmode=disable
-NATS_URL=nats://localhost:4222
-APPOINTMENT_SERVICE_ADDR=:8082
-DOCTOR_SERVICE_GRPC_TARGET=127.0.0.1:8081
-```
-
-Notification Service:
-
-```bash
-NATS_URL=nats://localhost:4222
-```
-
-The root combined binary also supports `DOCTOR_DATABASE_URL` and `APPOINTMENT_DATABASE_URL`, but the assignment defense flow should use the three service directories.
-
-## Infrastructure Setup
-
-Start the full stack:
-
-```bash
-docker compose up --build
-```
-
-The compose file starts:
-
-- `doctor_service`
-- `appointment_service`
-- `doctor-service`
-- `appointment-service`
-- `notification-service`
-- `nats`
-
-## Migrations
-
-Migrations are stored inside each service directory:
-
-- `doctor-service/migrations/000001_create_doctors.up.sql`
-- `doctor-service/migrations/000001_create_doctors.down.sql`
-- `appointment-service/migrations/000001_create_appointments.up.sql`
-- `appointment-service/migrations/000001_create_appointments.down.sql`
-
-Migrations run automatically on service startup before the gRPC server starts listening.
-
-Manual rollback examples:
-
-```bash
-migrate -path doctor-service/migrations \
-  -database "postgres://postgres:postgres@localhost:5433/doctor_service?sslmode=disable" \
-  down 1
-
-migrate -path appointment-service/migrations \
-  -database "postgres://postgres:postgres@localhost:5433/appointment_service?sslmode=disable" \
-  down 1
-```
-
-Manual apply examples:
-
-```bash
-migrate -path doctor-service/migrations \
-  -database "postgres://postgres:postgres@localhost:5433/doctor_service?sslmode=disable" \
-  up
-
-migrate -path appointment-service/migrations \
-  -database "postgres://postgres:postgres@localhost:5433/appointment_service?sslmode=disable" \
-  up
-```
-
-## Startup Order
-
-Start infrastructure first:
-
-```bash
-docker compose up -d postgres nats
-```
-
-Or start the complete Docker Compose stack:
+Start everything:
 
 ```bash
 docker compose up --build
 ```
 
-For a local all-in-one run from the repository root:
+Start only infrastructure for local `go run`:
 
 ```bash
-go run .
+docker compose up -d postgres nats redis
 ```
 
-This starts Doctor Service, Appointment Service, and the Notification Service subscriber in one process. For defense, the three-terminal service startup below is still clearer because the Notification Service logs are isolated.
+Run gateway locally:
 
-Start Doctor Service:
+```bash
+cd mock-gateway
+GATEWAY_PORT=8080 go run .
+```
+
+Run Doctor Service:
 
 ```bash
 cd doctor-service
 DATABASE_URL="postgres://postgres:postgres@localhost:5433/doctor_service?sslmode=disable" \
 NATS_URL="nats://localhost:4222" \
+REDIS_URL="redis://localhost:6379" \
+CACHE_TTL_SECONDS=60 \
+RATE_LIMIT_RPM=100 \
 DOCTOR_SERVICE_ADDR=":8081" \
 go run .
 ```
 
-Start Appointment Service:
+For assignment-style environment names, `GRPC_PORT=8081` is also supported when `DOCTOR_SERVICE_ADDR` is not set.
+
+Run Appointment Service:
 
 ```bash
 cd appointment-service
 DATABASE_URL="postgres://postgres:postgres@localhost:5433/appointment_service?sslmode=disable" \
 NATS_URL="nats://localhost:4222" \
+REDIS_URL="redis://localhost:6379" \
+CACHE_TTL_SECONDS=60 \
+RATE_LIMIT_RPM=100 \
 APPOINTMENT_SERVICE_ADDR=":8082" \
 DOCTOR_SERVICE_GRPC_TARGET="127.0.0.1:8081" \
 go run .
 ```
 
-Start Notification Service:
+For assignment-style environment names, `GRPC_PORT=8082` is also supported when `APPOINTMENT_SERVICE_ADDR` is not set.
+
+Run Notification Service:
 
 ```bash
 cd notification-service
-NATS_URL="nats://localhost:4222" go run .
+NATS_URL="nats://localhost:4222" \
+REDIS_URL="redis://localhost:6379" \
+GATEWAY_URL="http://localhost:8080" \
+WORKER_POOL_SIZE=3 \
+JOB_MAX_RETRIES=3 \
+JOB_BACKOFF_SECONDS=1,2,4 \
+go run .
 ```
 
-Doctor Service should be available before Appointment Service handles `CreateAppointment`, because Appointment Service validates `doctor_id` synchronously over gRPC.
+Startup order for defense: PostgreSQL, NATS, Redis, Mock Gateway, Doctor Service, Appointment Service, Notification Service.
+
+## Environment Variables
+
+| Service | Variable | Default / example |
+| --- | --- | --- |
+| all | `REDIS_URL` | `redis://localhost:6379` |
+| Doctor / Appointment | `CACHE_TTL_SECONDS` | `60` |
+| Doctor / Appointment | `RATE_LIMIT_RPM` | `100` |
+| Doctor / Appointment | `DATABASE_URL` | PostgreSQL URL |
+| all publishers/subscribers | `NATS_URL` | `nats://localhost:4222` |
+| Doctor | `DOCTOR_SERVICE_ADDR` | `:8081` |
+| Doctor / Appointment | `GRPC_PORT` | assignment-compatible alias when service-specific address is unset |
+| Appointment | `APPOINTMENT_SERVICE_ADDR` | `:8082` |
+| Appointment | `DOCTOR_SERVICE_GRPC_TARGET` | `127.0.0.1:8081` |
+| Notification | `GATEWAY_URL` | `http://localhost:8080` |
+| Notification | `WORKER_POOL_SIZE` | `3` |
+| Notification | `JOB_MAX_RETRIES` | `3` |
+| Notification | `JOB_BACKOFF_SECONDS` | `1,2,4` |
+| Mock Gateway | `GATEWAY_PORT` | `8080` |
 
 ## Event Contract
 
-| Subject | Publisher | Trigger | JSON fields |
-| --- | --- | --- | --- |
-| `doctors.created` | Doctor Service | `CreateDoctor` succeeds | `event_type`, `occurred_at`, `id`, `full_name`, `specialization`, `email` |
-| `appointments.created` | Appointment Service | `CreateAppointment` succeeds | `event_type`, `occurred_at`, `id`, `title`, `doctor_id`, `status` |
-| `appointments.status_updated` | Appointment Service | `UpdateAppointmentStatus` succeeds | `event_type`, `occurred_at`, `id`, `old_status`, `new_status` |
+The NATS subjects stay unchanged:
 
-Example `appointments.created` event:
+- `doctors.created`
+- `appointments.created`
+- `appointments.status_updated`
 
-```json
-{
-  "event_type": "appointments.created",
-  "occurred_at": "2026-05-01T10:23:44Z",
-  "id": "appt-1",
-  "title": "Initial cardiac consultation",
-  "doctor_id": "doc-1",
-  "status": "new"
-}
-```
-
-## Notification Logs
-
-Each consumed event is printed to stdout as one JSON object:
-
-```json
-{"time":"2026-05-01T10:23:44Z","subject":"doctors.created","event":{"event_type":"doctors.created","occurred_at":"2026-05-01T10:23:44Z","id":"doc-1","full_name":"Dr. Aisha Seitkali","specialization":"Cardiology","email":"a.seitkali@clinic.kz"}}
-```
-
-The `time` field is when Notification Service received and processed the event. The `event` field is the full JSON payload from the publishing service.
-
-## gRPC Behavior
-
-Existing Assignment 2 behavior is preserved:
-
-- Duplicate doctor email returns `AlreadyExists`.
-- Missing doctor by id returns `NotFound`.
-- Missing appointment by id returns `NotFound`.
-- Invalid input returns `InvalidArgument`.
-- Invalid appointment status transitions return `InvalidArgument`.
-- If Doctor Service is unreachable during appointment creation, Appointment Service returns `Unavailable`.
-- Runtime database failures return `Internal`.
-
-Broker failures do not affect RPC responses. Doctor and Appointment services log NATS connection or publish failures and continue serving requests.
-
-## Transactions
-
-Appointment status updates use a PostgreSQL transaction with `SELECT ... FOR UPDATE`, then update the row and commit. This protects the read-modify-write operation from concurrent status changes. Single-row inserts are atomic by PostgreSQL statement semantics.
-
-## NATS vs RabbitMQ
-
-- NATS Core is lightweight pub/sub with no message persistence; choose it for simple stateless notifications and local demos.
-- RabbitMQ uses exchanges and queues; choose it when subscribers need durable queues, acknowledgements, and stronger delivery guarantees.
-- With NATS Core, subscribers must be online to receive messages. With RabbitMQ durable queues, a subscriber can consume queued messages after reconnecting.
+The gRPC/proto/domain models stay unchanged. `appointments.status_updated` keeps the original fields and adds one backwards-compatible JSON field, `doctor_id`, because the Assignment 4 job contract requires the Notification Service to read doctor id from the event payload. Existing consumers can ignore the extra field.
 
 ## Testing
 
 Run automated tests:
 
 ```bash
-go test ./...
+GOCACHE=/private/tmp/med-go-gocache go test ./...
 ```
 
-Use the commands in `grpcurl_commands.md` for live defense testing. Watch the Notification Service terminal after each write RPC to verify the expected JSON event log appears.
+Validate Docker Compose:
+
+```bash
+docker compose config
+```
+
+Use `grpcurl_commands.md` for defense commands, including cache-hit, rate-limit, job queue, idempotency, and dead-letter checks.
