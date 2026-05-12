@@ -6,31 +6,7 @@ Unchanged from Assignment 3: gRPC contracts, generated stubs, domain models, Pos
 
 ## Architecture
 
-```mermaid
-flowchart LR
-  Client["grpcurl / gRPC client"]
-  Doctor["Doctor Service :8081"]
-  Appointment["Appointment Service :8082"]
-  Notify["Notification Service"]
-  Gateway["Mock Notification Gateway :8080"]
-  DoctorDB[("PostgreSQL doctor_service")]
-  AppointmentDB[("PostgreSQL appointment_service")]
-  Redis[("Redis")]
-  NATS[("NATS Core")]
-
-  Client -->|"gRPC"| Doctor
-  Client -->|"gRPC"| Appointment
-  Appointment -->|"gRPC doctor validation"| Doctor
-  Doctor -->|"SQL"| DoctorDB
-  Appointment -->|"SQL"| AppointmentDB
-  Doctor -->|"cache + rate limiter"| Redis
-  Appointment -->|"cache + rate limiter"| Redis
-  Notify -->|"idempotency keys"| Redis
-  Doctor -->|"doctors.created"| NATS
-  Appointment -->|"appointments.created / status_updated"| NATS
-  NATS -->|"subscribe"| Notify
-  Notify -->|"POST /notify jobs"| Gateway
-```
+![img.png](docs/img.png)
 
 ## Services
 
@@ -83,21 +59,7 @@ Idempotency keys are stored in Redis as `notification:job:<sha>`. `SETNX process
 
 Gateway failures with HTTP 503 or network errors retry with exponential backoff. Defaults are `JOB_MAX_RETRIES=3` and `JOB_BACKOFF_SECONDS=1,2,4`. After the configured attempts fail, the worker writes a JSON `dead_letter` line to stderr and deletes the processing key so a manual replay can retry.
 
-```mermaid
-stateDiagram-v2
-  [*] --> Logged: NATS event received
-  Logged --> Ignored: new_status != done
-  Logged --> Duplicate: Redis key == done
-  Logged --> Enqueued: SETNX processing
-  Enqueued --> Processing: worker receives job
-  Processing --> Success: POST /notify HTTP 200
-  Processing --> Retry: HTTP 503 or network error
-  Retry --> Processing: backoff expires
-  Retry --> DeadLetter: attempts exhausted
-  Success --> [*]: Redis key = done for 24h
-  Duplicate --> [*]
-  DeadLetter --> [*]
-```
+![img.png](docs/img1.png)
 
 ## Infrastructure
 
